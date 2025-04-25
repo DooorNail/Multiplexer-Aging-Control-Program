@@ -50,7 +50,7 @@ from colorama import init, Fore, Style
 init(autoreset=True)
 
 # Configure logging
-logging.basicConfig(level=logging.INFO, 
+logging.basicConfig(level=logging.INFO,
                     format='%(asctime)s - %(levelname)s - %(message)s')
 
 
@@ -90,7 +90,6 @@ class Multimeter:
             self.resource.write(':TRIG:COUN %d' % 1)
         except Exception as e:
             logging.error("Error configuring multimeter: %s", e)
-        
 
     def initiate(self):
         """
@@ -160,7 +159,8 @@ class TemperatureHumiditySensor:
                 line_buffering=True)
             print(f"[TEMP/RH] Connected to: {self.ser.portstr}")
         except Exception as e:
-            logging.error("Failed to initialize TemperatureHumiditySensor: %s", e)
+            logging.error(
+                "Failed to initialize TemperatureHumiditySensor: %s", e)
             raise
 
     def read_sensor(self):
@@ -209,7 +209,7 @@ class PowerSupply:
         self.segment_start_time = datetime.datetime.now()
         self.prgm_index = 0
         self.sequence_complete = False
-        
+
         if charging_curve is None:
             # self.charging_curve = [
             #     [0, 0, 0],
@@ -248,7 +248,8 @@ class PowerSupply:
 
         if not simulation:
             try:
-                self.serial = serial.Serial(port=self.port, baudrate=self.baudrate, timeout=self.timeout)
+                self.serial = serial.Serial(
+                    port=self.port, baudrate=self.baudrate, timeout=self.timeout)
             except Exception as e:
                 logging.error("Failed to initialize PowerSupply serial: %s", e)
                 raise
@@ -420,7 +421,7 @@ class PowerSupply:
         # self.segment_start_time = datetime.datetime.now()
         self.voltage_setpoint_set(0)
         self.run_program()
-        
+
     def run_program(self):
         """
         Advance the charging curve program based on elapsed time.
@@ -430,9 +431,10 @@ class PowerSupply:
             if segment_time < 0:
                 # a negative segment time means the target voltage should be held indefinetly
                 return
-            
-            elapsed = (datetime.datetime.now() - self.segment_start_time).total_seconds()
-            
+
+            elapsed = (datetime.datetime.now() -
+                       self.segment_start_time).total_seconds()
+
             if elapsed > segment_time:
                 self.prgm_index += 1
                 if self.prgm_index >= len(self.charging_curve):
@@ -451,6 +453,7 @@ class PowerSupply:
         except Exception as e:
             logging.error("Error in run_program: %s", e)
 
+
 class Multiplexer:
     def __init__(self, port='COM12', baudrate=115200):
         """
@@ -468,15 +471,15 @@ class Multiplexer:
         except Exception as e:
             logging.error("Failed to initialize Multiplexer: %s", e)
             raise
-    
+
     def arm(self):
         """Arm the multiplexer for operation."""
         self.send_command("ARM")
-    
+
     def disarm(self):
         """Disarm the multiplexer."""
         self.send_command("DISARM")
-    
+
     def set_channel(self, channel, state):
         """
         Set a channel to on (1) or off (0).
@@ -487,7 +490,7 @@ class Multiplexer:
             self.send_command(f"WA{channel},{state}")
         else:
             logging.error("Invalid channel or state")
-    
+
     def discharge(self, state):
         """
         Control the discharge circuit.
@@ -498,7 +501,7 @@ class Multiplexer:
             self.send_command(f"WB1,{state}")
         else:
             logging.error("Invalid state")
-    
+
     def send_command(self, command):
         """
         Send a command to the multiplexer and verify it was accepted.
@@ -514,7 +517,7 @@ class Multiplexer:
         except Exception as e:
             logging.error(f"Error sending MUX command {command}: {e}")
             return False
-        
+
 
 class DataLogger:
     def __init__(self, test_id, device_names, minimum_measurement_count=60):
@@ -527,7 +530,7 @@ class DataLogger:
         self.minimum_measurement_count = minimum_measurement_count
         self.data_files = {}
         self.active_device = None
-        
+
         # Create a file for each device
         base_filename = datetime.datetime.now().strftime("%y%m%d") + "_" + test_id
         for i, name in enumerate(device_names):
@@ -539,11 +542,11 @@ class DataLogger:
                     'data_points': [],
                     'header_written': False
                 }
-    
+
     def set_active_device(self, device_idx):
         """Set which device is currently being measured."""
         self.active_device = device_idx
-    
+
     def write_header(self, device_idx):
         """Write header to a device's data file."""
         if device_idx in self.data_files:
@@ -553,19 +556,20 @@ class DataLogger:
                     f.write(header)
                 self.data_files[device_idx]['header_written'] = True
             except Exception as e:
-                logging.error(f"Error writing header for device {device_idx}: {e}")
-    
+                logging.error(
+                    f"Error writing header for device {device_idx}: {e}")
+
     def log_data(self, line):
         """Log data for the currently active device."""
         if self.active_device is not None and self.active_device in self.data_files:
             if not self.data_files[self.active_device]['header_written']:
                 self.write_header(self.active_device)
-            
+
             self.data_files[self.active_device]['data_points'].append(line)
-            
+
             if len(self.data_files[self.active_device]['data_points']) >= self.minimum_measurement_count:
                 self.push_data_to_file(self.active_device)
-    
+
     def push_data_to_file(self, device_idx):
         """Write buffered data to file for a specific device."""
         if device_idx in self.data_files and self.data_files[device_idx]['data_points']:
@@ -574,34 +578,35 @@ class DataLogger:
                     f.writelines(self.data_files[device_idx]['data_points'])
                 self.data_files[device_idx]['data_points'] = []
             except Exception as e:
-                logging.error(f"Error logging data for device {device_idx}: {e}")
+                logging.error(
+                    f"Error logging data for device {device_idx}: {e}")
 
 
 class CurrentPlot:
-    def __init__(self, ax, controller, x_scale = None, x_max = None, is_scaled_plot=False):
+    def __init__(self, ax, controller, x_scale=None, x_max=None, is_scaled_plot=False):
         self.ax = ax
         self.x_scale = x_scale
         self.is_scaled_plot = is_scaled_plot
-        
+
         self.color_cycle = iter(plt.cycler('color', plt.cm.tab10.colors))
-        
+
         if self.is_scaled_plot:
             # Scaled plot properties (single device)
             self.current_device = None
             self.rt_times = []
             self.rt_currents = []
-            self.realtime_line, = self.ax.plot([], [], '-', label='Device Name')
+            self.realtime_line, = self.ax.plot(
+                [], [], '-', label='Device Name')
             self.ax.legend()
         else:
             # Full plot properties (multiple devices)
             self.device_lines = {}  # {device_name: line_object}
-        
+
         self.ax.set_xlabel('Time (s)')
         self.ax.set_ylabel('Current (uA)')
 
         if x_max is not None:
             self.ax.set_xlim(0, x_max)
-            
 
     def update(self, new_reading, time_elapsed):
         device_name, time_val, current_val = new_reading
@@ -616,28 +621,31 @@ class CurrentPlot:
                 color = next(self.color_cycle)['color']
                 self.realtime_line.set_color(color)
                 self.realtime_line.set_label(f'Real-time ({device_name})')
-            
+
             # Update data
             self.rt_times.append(time_val)
             self.rt_currents.append(current_val*1e6)
-            
+
             # Trim old data if x_scale is set
             if self.x_scale is not None:
                 while self.rt_times and self.rt_times[0] <= time_elapsed - self.x_scale:
                     self.rt_times.pop(0)
                     self.rt_currents.pop(0)
-            
+
             # Update plot and scaling
             self.realtime_line.set_data(self.rt_times, self.rt_currents)
             if len(self.rt_times) > 1:
-                self.ax.set_xlim(min(self.rt_times), min(max(self.rt_times)+60, max(self.rt_times)*2))
+                self.ax.set_xlim(min(self.rt_times), min(
+                    max(self.rt_times)+60, max(self.rt_times)*2))
                 minVal = min(self.rt_currents)
                 maxVal = max(self.rt_currents)
-                self.ax.set_ylim((minVal-abs(minVal)*0.2), (maxVal+abs(minVal)*0.3))
-                
-            self.realtime_line.set_label(f"{device_name}: {self.rt_currents[-1]:.4g}uA")
+                self.ax.set_ylim((minVal-abs(minVal)*0.2),
+                                 (maxVal+abs(minVal)*0.3))
+
+            self.realtime_line.set_label(
+                f"{device_name}: {self.rt_currents[-1]:.4g}uA")
             # self.realtime_line.set_label(f"hecing")
-                
+
         else:
             # Handle full plot (multiple devices)
             if device_name not in self.device_lines:
@@ -646,58 +654,58 @@ class CurrentPlot:
                 self.device_lines[device_name], = self.ax.plot(
                     [], [], '-', color=color, label=device_name
                 )
-            
+
             # Get or create device data storage
             line = self.device_lines[device_name]
             xdata, ydata = line.get_data()
-            
+
             # Update data
             xdata = np.append(xdata, time_val)
             ydata = np.append(ydata, current_val*1e6)
             line.set_data(xdata, ydata)
-            
+
             # Auto-scale to show all data
             self.ax.relim()
             self.ax.autoscale_view()
-            
-        self.ax.legend()      
-        
+
+        self.ax.legend()
+
 
 class VoltagePlot:
-    def __init__(self, ax, computed_curve, x_scale=None, is_scaled_plot=False, x_max = None):
+    def __init__(self, ax, computed_curve, x_scale=None, is_scaled_plot=False, x_max=None):
         self.ax = ax
         self.x_scale = x_scale
         self.is_scaled_plot = is_scaled_plot
-        
+
         # Common properties
         self.color_cycle = iter(plt.cycler('color', plt.cm.tab10.colors))
         # Convert planned curve data to numpy arrays
         self.planned_curve_time = np.array(computed_curve[0])
         self.planned_curve_voltage = np.array(computed_curve[1])
-        
+
         # Plot target curve
         self.target_line = self.ax.plot(
-            self.planned_curve_time, 
-            self.planned_curve_voltage, 
-            'k--', 
+            self.planned_curve_time,
+            self.planned_curve_voltage,
+            'k--',
             label='Target Voltage Curve',
             zorder=1
         )[0]
-        
+
         if self.is_scaled_plot:
             # Scaled plot properties
             self.current_device = None
             self.rt_times = []
             self.rt_voltages = []
             self.realtime_line, = self.ax.plot(
-                [], [], 
-                '-', 
+                [], [],
+                '-',
                 label='Real-time Voltage',
                 zorder=2
             )
             self.cursor_marker, = self.ax.plot(
-                [], [], 
-                'ro', 
+                [], [],
+                'ro',
                 label='Current Position',
                 zorder=3
             )
@@ -707,14 +715,14 @@ class VoltagePlot:
                 self.ax.set_xlim(0, x_max)
             self.device_lines = {}
             self.device_markers = {}
-        
+
         self.ax.set_xlabel('Time (s)')
         self.ax.set_ylabel('Voltage (V)')
         self.ax.legend()
 
     def update(self, new_reading, time_elapsed):
         device_name, time_val, voltage_val = new_reading
-        
+
         if self.is_scaled_plot:
             # Handle scaled plot
             if device_name != self.current_device:
@@ -723,37 +731,41 @@ class VoltagePlot:
                 self.rt_voltages = []
                 color = next(self.color_cycle)['color']
                 self.realtime_line.set_color(color)
-                self.realtime_line.set_label(f'Real-time Voltage ({device_name})')
+                self.realtime_line.set_label(
+                    f'Real-time Voltage ({device_name})')
                 self.cursor_marker.set_color(color)
-            
+
             # Update data
             self.rt_times.append(time_val)
             self.rt_voltages.append(voltage_val)
             self.cursor_marker.set_data([time_val], [voltage_val])
-            
+
             # Trim old data
             if self.x_scale is not None:
                 while self.rt_times and self.rt_times[0] <= time_elapsed - self.x_scale:
                     self.rt_times.pop(0)
                     self.rt_voltages.pop(0)
-            
+
             # Update plot
             self.realtime_line.set_data(self.rt_times, self.rt_voltages)
-            
+
             if len(self.rt_times) > 1:
                 x_min = min(self.rt_times)
                 x_max = min(max(self.rt_times)+60, max(self.rt_times)*2)
-                
+
                 # Get visible portion of target curve (now using numpy arrays)
-                mask = (self.planned_curve_time >= x_min) & (self.planned_curve_time <= x_max)
+                mask = (self.planned_curve_time >= x_min) & (
+                    self.planned_curve_time <= x_max)
                 visible_target_times = self.planned_curve_time[mask]
                 visible_target_volts = self.planned_curve_voltage[mask]
-                
+
                 # Update view
                 self.ax.set_xlim(x_min, x_max)
                 if len(visible_target_volts) > 0:
-                    y_min = min(min(self.rt_voltages), min(visible_target_volts)) - 25
-                    y_max = max(max(self.rt_voltages), max(visible_target_volts)) + 25
+                    y_min = min(min(self.rt_voltages), min(
+                        visible_target_volts)) - 25
+                    y_max = max(max(self.rt_voltages), max(
+                        visible_target_volts)) + 25
                 else:
                     y_min = min(self.rt_voltages) - 25
                     y_max = max(self.rt_voltages) + 25
@@ -768,35 +780,39 @@ class VoltagePlot:
                 self.device_markers[device_name], = self.ax.plot(
                     [], [], 'o', color=color, zorder=3
                 )
-            
+
             line = self.device_lines[device_name]
             marker = self.device_markers[device_name]
             xdata, ydata = line.get_data()
-            
-            line.set_data(np.append(xdata, time_val), np.append(ydata, voltage_val))
+
+            line.set_data(np.append(xdata, time_val),
+                          np.append(ydata, voltage_val))
             marker.set_data([time_val], [voltage_val])
-            
+
             self.ax.relim()
             self.ax.autoscale_view()
-        
+
         self.ax.legend()
-        
-        
+
+
 class DataGUI:
     def __init__(self, controller):
         self.controller = controller
         # Create figure with two subplots.
-        self.fig, axs = plt.subplots(2, 2, figsize=(20, 14))  
+        self.fig, axs = plt.subplots(2, 2, figsize=(20, 14))
         ax1, ax2, ax3, ax4 = axs.ravel()
 
         # Plot 2: Charging curve and realtime PS voltage.
         # Precompute the planned charging curve.
 
-        computed_curve = self.compute_planned_curve(self.controller.power_supply.charging_curve)
+        computed_curve = self.compute_planned_curve(
+            self.controller.power_supply.charging_curve)
 
-        self.voltage_plots = [VoltagePlot(ax3, computed_curve, x_max=computed_curve[0][-1]), VoltagePlot(ax4, computed_curve, x_scale=300, is_scaled_plot=True)]
+        self.voltage_plots = [VoltagePlot(ax3, computed_curve, x_max=computed_curve[0][-1]),
+                              VoltagePlot(ax4, computed_curve, x_scale=300, is_scaled_plot=True)]
 
-        self.current_plots = [CurrentPlot(ax1, self.controller, x_max=computed_curve[0][-1]), CurrentPlot(ax2, self.controller, x_scale=300, is_scaled_plot=True)]
+        self.current_plots = [CurrentPlot(ax1, self.controller, x_max=computed_curve[0][-1]),
+                              CurrentPlot(ax2, self.controller, x_scale=300, is_scaled_plot=True)]
 
     def compute_planned_curve(self, charging_curve):
         """
@@ -810,7 +826,8 @@ class DataGUI:
         start_voltage = 0
         for seg in charging_curve:
             final_voltage, ramp_rate, seg_total_time = seg
-            ramp_duration = (final_voltage - start_voltage) / ramp_rate if ramp_rate != 0 else 0
+            ramp_duration = (final_voltage - start_voltage) / \
+                ramp_rate if ramp_rate != 0 else 0
             plateau_duration = seg_total_time - ramp_duration
             # Ramp segment.
             current_time += ramp_duration
@@ -822,7 +839,7 @@ class DataGUI:
                 times.append(current_time)
                 voltages.append(final_voltage)
                 return times, voltages
-            
+
             if plateau_duration > 0:
                 current_time += plateau_duration
                 times.append(current_time)
@@ -839,15 +856,18 @@ class DataGUI:
             # time_elapsed = (datetime.datetime.now() - self.controller.test_start_time).total_seconds()
             time_elapsed = self.controller.current_reading[0]
             for v_plot in self.voltage_plots:
-                v_plot.update(new_reading=self.controller.voltage_reading, time_elapsed=time_elapsed)
-            
+                v_plot.update(
+                    new_reading=self.controller.voltage_reading, time_elapsed=time_elapsed)
+
             for c_plot in self.current_plots:
-                c_plot.update(new_reading=self.controller.current_reading, time_elapsed=time_elapsed)       
-            
+                c_plot.update(
+                    new_reading=self.controller.current_reading, time_elapsed=time_elapsed)
+
             self.fig.canvas.draw()
             self.fig.canvas.flush_events()
         except Exception as e:
             logging.error("Error updating : %s", e)
+
 
 class TestController:
     def __init__(self):
@@ -856,70 +876,70 @@ class TestController:
         """
         # Initialize the temperature/humidity sensor
         # self.sensor = TemperatureHumiditySensor(port='COM5', baudrate=4800)
-        
+
         # Initialize VISA resource manager and multimeters
         self.rm = visa.ResourceManager()
         resources = self.rm.list_resources()
         print(resources)
         if len(resources) < 1:
             raise Exception("Not enough VISA resources found for multimeters.")
-        self.current_multimeter = Multimeter(self.rm.open_resource(resources[0]))
-        
+        self.current_multimeter = Multimeter(
+            self.rm.open_resource(resources[0]))
+
         # Initialize the power supply
-        self.power_supply = PowerSupply(port="COM8", baudrate=115200, timeout=0.5)
+        self.power_supply = PowerSupply(
+            port="COM8", baudrate=115200, timeout=0.5)
         self.power_supply.blocking_connect()
         self.power_supply.startup()
-        
+
         # Initialize the multiplexer
         self.multiplexer = Multiplexer(port='COM14')
-        
-        
-        
-        
+
         self.indentify_populated_channels()
-        
+
         if not self.connected_devices:
             raise Exception("No devices connected to test.")
-        
+
         # Get device names from user
         self.get_device_names()
-        
+
         # Filter out empty names (unused positions)
-        self.connected_devices = [i for i, name in enumerate(self.device_names) if name]
+        self.connected_devices = [
+            i for i, name in enumerate(self.device_names) if name]
         if not self.connected_devices:
             raise Exception("No devices specified for testing.")
-        
+
         self.logger = DataLogger(
             test_id=input("Enter test ID:\n>>> "),
             device_names=self.device_names
-        )       
-        
+        )
+
         # Data lists for GUI plotting:
         # For multimeter current: each tuple is (device_name, elapsed_time, dmm_current)
         self.current_reading = ()
         # For power supply voltage readings: each tuple is (device_name, elapsed_time, ps_voltage)
         self.voltage_reading = ()
-        
+
         # Record test start time.
         self.test_start_time = datetime.datetime.now()
-        
+
         self.current_device_idx = None
-        
+
         self.measurement_interval = 0.05
-        
+
         self.populated_threshold = 1e-7  # Minimum current for device verification
-        
-        
+
         charging_curve_duration = 0
         for seg in self.power_supply.charging_curve:
             final_voltage, ramp_rate, seg_total_time = seg
             charging_curve_duration += seg_total_time
-        
-        print(f"Estimated runtime: roughly {len(self.connected_devices) * charging_curve_duration / 60} minutes")
-        
+
+        print(
+            f"Estimated runtime: roughly {len(self.connected_devices) * charging_curve_duration / 60} minutes")
+
         self.current_multimeter.configure()
-        self.current_multimeter.initiate() 
-    
+        self.current_multimeter.initiate()
+
     def get_device_names(self):
         """
             Get device names from the user for connected devices in a multiplexer with 8 channels.
@@ -934,8 +954,8 @@ class TestController:
         self.device_names = [None] * 8
         # Header
         print(Fore.CYAN + "\n"*5 + "=" * 50 + "\n"
-            + " DEVICE NAMING ".center(50, "~") + "\n"
-            + "=" * 50 + Style.RESET_ALL)
+              + " DEVICE NAMING ".center(50, "~") + "\n"
+              + "=" * 50 + Style.RESET_ALL)
 
         print(Fore.YELLOW + "\n[ Enter Device Names ]" + Style.RESET_ALL)
         print(f"{Fore.LIGHTBLACK_EX}or type 'skip' to ignore\n{Style.RESET_ALL}")
@@ -960,7 +980,6 @@ class TestController:
                 except ValueError as e:
                     print(f"  {Fore.RED}Error: {e}{Style.RESET_ALL}")
 
-
         while True:
             # ---------------- Confirmation Table -----------------
             print(Fore.YELLOW + "\n\n[ Current Names ]" + Style.RESET_ALL)
@@ -974,7 +993,7 @@ class TestController:
                     else Fore.LIGHTBLACK_EX + "----" + Style.RESET_ALL
                 )
                 print(f" {Fore.GREEN}{i+1:8}{Style.RESET_ALL} " +
-                    f"│ {Fore.BLUE}{status}{Style.RESET_ALL}")
+                      f"│ {Fore.BLUE}{status}{Style.RESET_ALL}")
             # --------------------------------------------------------
 
             print(Fore.YELLOW + "\n\n[ Confirm or Modify ]" + Style.RESET_ALL)
@@ -1023,29 +1042,30 @@ class TestController:
                             f"  {Fore.RED}Error: Enter a channel number (1-8) or 'done'{Style.RESET_ALL}")
             else:
                 break
-    
+
     def indentify_populated_channels(self):
         """Check whether a device on each channel is present by applying low voltage."""
         print("\Indentify populated channels...")
         self.power_supply.voltage_ramp_rate_set(100)
-        self.power_supply.voltage_setpoint_set(15)  # Low voltage for verification
+        self.power_supply.voltage_setpoint_set(
+            15)  # Low voltage for verification
         self.power_supply.on()
-        
+
         self.current_multimeter.configure_rapid()
         self.current_multimeter.initiate()
         time.sleep(0.5)
-        
+
         self.current_multimeter.read_value(clear_extra=True)
         self.multiplexer.arm()
-        
+
         time.sleep(0.5)  # Allow voltage to stabilize
-        
+
         valid_channels = []
-        
+
         for i in range(8):
             self.multiplexer.set_channel(i, 1)
             time.sleep(0.2)  # Settling time
-            
+
             # Measure current
             self.current_multimeter.initiate()
             time.sleep(0.5)
@@ -1053,45 +1073,46 @@ class TestController:
             if current is None:
                 print(f"Channel {i + 1}: No reading")
                 continue
-            
+
             try:
                 current = float(current)
                 if current < self.populated_threshold:
-                    print(f"Channel {i + 1}: No device connected, low current  || ({(current*1e6):.2e}uA)")
+                    print(
+                        f"Channel {i + 1}: No device connected, low current  || ({(current*1e6):.2e}uA)")
                 else:
                     valid_channels.append(i)
-                    print(f"Channel {i + 1}: OK                                || ({(current*1e6):.2e}uA)")
+                    print(
+                        f"Channel {i + 1}: OK                                || ({(current*1e6):.2e}uA)")
             except ValueError:
                 print(f"Channel {i + 1}: Invalid current reading")
                 self.multiplexer.set_channel(i, 0)
-        
+
         # Update active devices list to only include verified devices
         self.connected_devices = valid_channels
-        
+
         # Reset power supply
         self.power_supply.voltage_setpoint_set(0)
-        
+
         return bool(self.connected_devices)
-    
+
     def perform_measurement(self):
         """Do one measurement cycle for the current device."""
         if self.current_device_idx is None:
-            self.start_next_device_test() 
+            self.start_next_device_test()
         elif self.current_device_idx == 999:
             return False
-        
+
         # Update the power supply program
         self.power_supply.run_program()
-        
+
         if self.power_supply.sequence_complete:
             self.finish_device_test(self.current_device_idx)
-            self.start_next_device_test()            
-            
-        
+            self.start_next_device_test()
+
         current_value = self.current_multimeter.read_value()
         if current_value is None:
             return False  # Skip if no data
-        
+
         # Read sensor data
         # sensor_reading = self.sensor.read_sensor()
         # if sensor_reading is not None:
@@ -1099,49 +1120,53 @@ class TestController:
         #     sensor_data_str = f"{temperature},{humidity}"
         # else:
             # sensor_data_str = ","
-        
+
         sensor_data_str = ","
-        
+
         ps_voltage = self.power_supply.read_voltage()
-        
+
         # Log data to file
         log_line = f"{datetime.datetime.now()},{current_value},{sensor_data_str},{ps_voltage}\n"
         self.logger.log_data(log_line)
-        
+
         # Update readings for GUI
-        elapsed = (datetime.datetime.now() - self.test_start_time).total_seconds()
+        elapsed = (datetime.datetime.now() -
+                   self.test_start_time).total_seconds()
         try:
-            self.current_reading = (self.device_names[self.current_device_idx], elapsed, float(current_value))
-            self.voltage_reading = (self.device_names[self.current_device_idx], elapsed, ps_voltage)
-            
+            self.current_reading = (
+                self.device_names[self.current_device_idx], elapsed, float(current_value))
+            self.voltage_reading = (
+                self.device_names[self.current_device_idx], elapsed, ps_voltage)
+
             # Print status
             print(f"[{datetime.datetime.now()}] {self.device_names[self.current_device_idx]} | "
                   f"{elapsed:.1f}s | Current: {float(current_value):.4g} | "
                   f"PS Voltage: {ps_voltage:.1f} | Sensor: {sensor_data_str}")
         except Exception as e:
             logging.error("Error converting measurement values: %s", e)
-        
+
         return True
 
     def finish_device_test(self, device_idx):
         """Clean up after testing a device."""
-        print(f"Completing test for device {self.device_names[self.current_device_idx]}")
-        
+        print(
+            f"Completing test for device {self.device_names[self.current_device_idx]}")
+
         # Ramp down voltage
         self.power_supply.voltage_setpoint_set(0)
-                
+
         # Discharge the system
         self.multiplexer.discharge(1)
         time.sleep(5)
         self.multiplexer.discharge(0)
-        
+
         # Turn off this device
         self.multiplexer.set_channel(device_idx, 0)
-        
+
         # Save any remaining data
         if device_idx in self.logger.data_files:
             self.logger.push_data_to_file(device_idx)
-            
+
     def start_next_device_test(self):
         """Start testing the next device."""
         if self.current_device_idx == None:
@@ -1149,26 +1174,27 @@ class TestController:
         else:
             self.current_device_idx += 1
             if not self.current_device_idx in self.connected_devices:
-                print(f"End of tests") #---------------
+                print(f"End of tests")  # ---------------
                 self.multiplexer.send_command("WA,255")
                 self.power_supply.voltage_ramp_rate_set(1)
                 self.power_supply.voltage_setpoint_set(520)
                 self.power_supply.current_limit_set(0.5e-3)
                 self.current_device_idx = 999
                 return
-                
-        print(f"\nStarting test for device {self.current_device_idx + 1}: {self.device_names[self.current_device_idx]}")
-        
+
+        print(
+            f"\nStarting test for device {self.current_device_idx + 1}: {self.device_names[self.current_device_idx]}")
+
         self.logger.set_active_device(self.current_device_idx)
-        
+
         # Turn on this device
         self.multiplexer.set_channel(self.current_device_idx, 1)
         time.sleep(5)  # Settling time
-        
+
         self.test_start_time = datetime.datetime.now()
-        self.power_supply.restart_program()     
+        self.power_supply.restart_program()
         self.current_multimeter.read_value(clear_extra=True)
-        
+
     def cleanup(self):
         # Abort multimeter sampling.
         try:
@@ -1208,6 +1234,7 @@ class TestController:
             logging.error("Error logging buffer to file: %s", e)
         print("Cleanup complete. Program terminated.")
 
+
 class CSVTestController:
     """
     A test controller that feeds pre-recorded measurement data from a CSV file.
@@ -1215,6 +1242,7 @@ class CSVTestController:
       MeasTime, dmm1, dmm2, Temperature, Humidity, Voltage
     and subsequent rows with the corresponding values.
     """
+
     def __init__(self, csv_filename):
         self.datestamp_format = "%Y-%m-%d %H:%M:%S.%f"
         self.csv_filename = csv_filename
@@ -1222,26 +1250,26 @@ class CSVTestController:
         self.current_index = 0
         self.load_data()
         print(self.data[0][0])
-        self.test_start_time = datetime.datetime.strptime(self.data[0][0], self.datestamp_format)
+        self.test_start_time = datetime.datetime.strptime(
+            self.data[0][0], self.datestamp_format)
         # Mimic the attributes used for plotting in the original controller.
         self.current_reading = (0, 0, 0)  # (elapsed_time, dmm1, dmm2)
         self.voltage_reading = (0, 0)       # (elapsed_time, ps_voltage)
-    
+
         self.previous_time = datetime.datetime.now()
         self.measurement_interval = 0.05
-    
 
         self.power_supply = PowerSupply(simulation=True)
 
         # Get user inputs for test ID and sample names
         # test_id = input("Enter test ID:\n>>> ")
-        # sample1 = input("Sample in position 1:\n>>> ") 
+        # sample1 = input("Sample in position 1:\n>>> ")
         # sample2 = input("Sample in position 2:\n>>> ")
 
         test_id = "testOOP"
         sample1 = "TPx2"
         sample2 = "TPx1"
-        
+
         self.logger = DataLogger(test_id, sample1, sample2)
 
     def load_data(self):
@@ -1256,7 +1284,7 @@ class CSVTestController:
         except Exception as e:
             print("Error loading CSV data:", e)
             raise
-    
+
     def perform_measurement(self):
         """
         Simulate one measurement cycle using a row from the CSV file.
@@ -1267,15 +1295,15 @@ class CSVTestController:
             # Optionally, loop over or stop
             ## TODO---- should end program here instead ---- ##
             return False
-        
+
         if (datetime.datetime.now() - self.previous_time).total_seconds() < self.measurement_interval:
             return False
-        
+
         self.previous_time = datetime.datetime.now()
 
         row = self.data[self.current_index]
         self.current_index += 1
-        
+
         try:
             # Parse the CSV values.
             # Note: The timestamp from the CSV is not used for elapsed time.
@@ -1287,12 +1315,13 @@ class CSVTestController:
         except Exception as e:
             print("Error parsing CSV row:", e)
             return False
-        
+
         # Update the simulated readings.
-        elapsed = (datetime.datetime.strptime(row[0], self.datestamp_format) - self.test_start_time).total_seconds()
+        elapsed = (datetime.datetime.strptime(
+            row[0], self.datestamp_format) - self.test_start_time).total_seconds()
         self.current_reading = (elapsed, dmm1_value, dmm2_value)
         self.voltage_reading = (elapsed, ps_voltage)
-        
+
         # Print out a status message (similar to the real measurement cycle).
         # sensor_data_str = f"{temperature},{humidity}"
         # print(f"[{datetime.datetime.now()}] {elapsed:.1f}s | DMM1: {dmm1_value:.4g} | "
@@ -1302,18 +1331,20 @@ class CSVTestController:
     def cleanup(self):
         pass
 
+
 def main():
     # Initialize the controller and GUI.
     try:
         controller = TestController()
     except serial.SerialException:
         input("[ERROR] One or more serial devices not present. Press enter to run with simulated data:\n>>>")
-        controller = CSVTestController(csv_filename="250226_TP01,07_Ageing.csv")
+        controller = CSVTestController(
+            csv_filename="250226_TP01,07_Ageing.csv")
     gui = DataGUI(controller)
-    
+
     # Create a thread-safe queue for measurement data.
     measurement_queue = queue.Queue()
-    
+
     # Create an Event to signal shutdown.
     stop_event = threading.Event()
 
@@ -1325,8 +1356,10 @@ def main():
                 if controller.perform_measurement():
                     # Package the latest measurement data.
                     measurement_data = {
-                        'current': controller.current_reading,  # (device_name, elapsed_time, dmm1)
-                        'voltage': controller.voltage_reading     # (device_name, elapsed_time, ps_voltage)
+                        # (device_name, elapsed_time, dmm1)
+                        'current': controller.current_reading,
+                        # (device_name, elapsed_time, ps_voltage)
+                        'voltage': controller.voltage_reading
                     }
                     measurement_queue.put(measurement_data)
             except Exception as e:
@@ -1335,14 +1368,15 @@ def main():
             time.sleep(controller.measurement_interval)
 
     # Start the measurement thread.
-    meas_thread = threading.Thread(target=measurement_thread, name="MeasurementThread", daemon=True)
+    meas_thread = threading.Thread(
+        target=measurement_thread, name="MeasurementThread", daemon=True)
     meas_thread.start()
 
     # GUI update function to be scheduled in the main thread.
     def update_gui():
         latest_data = None
         if plt.fignum_exists(gui.fig.number):
-        # Drain the queue to get the most recent data.
+            # Drain the queue to get the most recent data.
             while not measurement_queue.empty():
                 latest_data = measurement_queue.get()
                 if latest_data is not None:
@@ -1350,25 +1384,27 @@ def main():
                     time_elapsed = latest_data['current'][1]
                     # Update the voltage plots.
                     for v_plot in gui.voltage_plots:
-                        v_plot.update(new_reading=latest_data['voltage'], time_elapsed=time_elapsed)
+                        v_plot.update(
+                            new_reading=latest_data['voltage'], time_elapsed=time_elapsed)
                     # Update the current plots.
                     for c_plot in gui.current_plots:
-                        c_plot.update(new_reading=latest_data['current'], time_elapsed=time_elapsed)
+                        c_plot.update(
+                            new_reading=latest_data['current'], time_elapsed=time_elapsed)
 
             gui.fig.canvas.draw()
             gui.fig.canvas.flush_events()
             # Schedule the next update after 200ms (5 fps).
             gui.fig.canvas.manager.window.after(200, update_gui)
         else:
-            logging.info("GUI window closed; continuing measurements in background.")
-
+            logging.info(
+                "GUI window closed; continuing measurements in background.")
 
     # Schedule the first GUI update.
     gui.fig.canvas.manager.window.after(200, update_gui)
 
     # Start the matplotlib main loop.
     # This call must be in the main thread.
-    
+
     try:
         plt.show()
         while True:
@@ -1378,6 +1414,7 @@ def main():
         stop_event.set()
     finally:
         controller.cleanup()
+
 
 if __name__ == "__main__":
     main()
