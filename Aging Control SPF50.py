@@ -1,3 +1,38 @@
+"""
+==========  TODO  ==========
+
+
+
+Breakdown or aging?
+    Aging options:
+    
+    - Whether to ramp each device individually
+    --> how many times?
+    --> stop during ramp if device has "failed"?
+    
+    - Whether to ramp all of the devices up to a hold voltage together afterwards
+    --> Voltage and time?
+    --> should bad devices be identified and remove if affecting the other ones?
+
+    Breakdown options:
+    - Max voltage
+    - Ramp rate
+    - threshold current
+    + increase multimeter read rate?
+    
+Self test:
+    - Disarm
+    - Set power supply to {X} Volts and turn on
+    - check that current flowing is close to current limit
+    - Arm and turn on the discharge resistors
+    - check that current flowing is close to the current limit
+    - Arm
+    - check that powersupply voltage is close to the voltage setpoint
+    - check that the current flowing is below threshold (close to zero)
+    
+
+"""
+
 import datetime
 import time
 import matplotlib.pyplot as plt
@@ -9,7 +44,10 @@ import csv
 import threading
 import queue
 import numpy as np
+from colorama import init, Fore, Style
 
+# Initialize colorama (automatically handles Windows/macOS/Linux)
+init(autoreset=True)
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, 
@@ -835,12 +873,20 @@ class TestController:
         # Initialize the multiplexer
         self.multiplexer = Multiplexer(port='COM14')
         
+        
+        
+        
+        self.indentify_populated_channels()
+        
+        if not self.connected_devices:
+            raise Exception("No devices connected to test.")
+        
         # Get device names from user
-        self.device_names = self.get_device_names()
+        self.get_device_names()
         
         # Filter out empty names (unused positions)
-        self.active_devices = [i for i, name in enumerate(self.device_names) if name]
-        if not self.active_devices:
+        self.connected_devices = [i for i, name in enumerate(self.device_names) if name]
+        if not self.connected_devices:
             raise Exception("No devices specified for testing.")
         
         self.logger = DataLogger(
@@ -861,14 +907,7 @@ class TestController:
         
         self.measurement_interval = 0.05
         
-        self.verification_threshold = 1e-7  # Minimum current for device verification
-
-        # Start multimeter measurements
-        self.current_multimeter.configure_rapid()
-        # time.sleep(1)
-        self.current_multimeter.read_value(clear_extra=True)
-        self.multiplexer.arm()
-        self.verify_devices()
+        self.populated_threshold = 1e-7  # Minimum current for device verification
         
         
         charging_curve_duration = 0
@@ -876,90 +915,163 @@ class TestController:
             final_voltage, ramp_rate, seg_total_time = seg
             charging_curve_duration += seg_total_time
         
-        print(f"Estimated runtime: roughly {len(self.active_devices) * charging_curve_duration / 60} minutes")
+        print(f"Estimated runtime: roughly {len(self.connected_devices) * charging_curve_duration / 60} minutes")
         
         self.current_multimeter.configure()
         self.current_multimeter.initiate() 
     
     def get_device_names(self):
-        """Get device names from user with ability to go back/cancel."""
-        device_names = [""] * 8  # Initialize with empty names
-        current_position = 0
-        
-        while current_position < 8:
-            print(f"\nEnter name for device in position {current_position + 1}:")
-            print("(Leave empty to finish, 'b' to go back, 'x' to start over)")
-            name = input(">>> ").strip()
-            
-            if name.lower() == 'x':
-                device_names = [""] * 8  # Initialize with empty names
-                current_position = 0
-                print("-- All names cleared --")
-            elif name.lower() == 'b':
-                if current_position > 0:
-                    current_position -= 1
-                    device_names[current_position] = ""
-                    print(f"Back to position {current_position + 1}")
-                continue
-            elif not name:
-                # Empty name means stop here
+        """
+            Get device names from the user for connected devices in a multiplexer with 8 channels.
+            Uses color for better readability.
+
+            self.connected_devices: List of integers representing connected device channels (0-7).
+
+            Updates devices_names:
+                List of 8 elements where each connected device has its name in its slot index,
+                and None for unconnected channels.
+        """
+        self.device_names = [None] * 8
+        # Header
+        print(Fore.CYAN + "\n"*5 + "=" * 50 + "\n"
+            + " DEVICE NAMING ".center(50, "~") + "\n"
+            + "=" * 50 + Style.RESET_ALL)
+
+        print(Fore.YELLOW + "\n[ Enter Device Names ]" + Style.RESET_ALL)
+        print(f"{Fore.LIGHTBLACK_EX}or type 'skip' to ignore\n{Style.RESET_ALL}")
+        for idx in self.connected_devices:
+            while True:
+                try:
+                    name = input(
+                        f"  {Fore.GREEN}Channel {idx + 1}:{Style.RESET_ALL} "
+                    ).strip()
+
+                    if not name:
+                        raise ValueError("Name cannot be empty")
+
+                    if name.startswith("$|$"):
+                        pass
+                        # This should be for pasting in a string containing the names for all 8 channels
+                        # return name.removeprefix("$|$").split(" | ")
+                    elif name != "skip":
+                        self.device_names[idx] = name
+
+                    break
+                except ValueError as e:
+                    print(f"  {Fore.RED}Error: {e}{Style.RESET_ALL}")
+
+
+        while True:
+            # ---------------- Confirmation Table -----------------
+            print(Fore.YELLOW + "\n\n[ Current Names ]" + Style.RESET_ALL)
+            print(
+                f"\n{Fore.GREEN}  Channel {Style.RESET_ALL}│ {Fore.BLUE}Name{Style.RESET_ALL}")
+            print(f"{"─" * 10}┼{"─" * 7}")
+            for i in range(8):
+                status = (
+                    Fore.BLUE + self.device_names[i] + Style.RESET_ALL
+                    if self.device_names[i]
+                    else Fore.LIGHTBLACK_EX + "----" + Style.RESET_ALL
+                )
+                print(f" {Fore.GREEN}{i+1:8}{Style.RESET_ALL} " +
+                    f"│ {Fore.BLUE}{status}{Style.RESET_ALL}")
+            # --------------------------------------------------------
+
+            print(Fore.YELLOW + "\n\n[ Confirm or Modify ]" + Style.RESET_ALL)
+            print(
+                f"{Fore.LIGHTBLACK_EX}type 'modify' to alter names, [ENTER] to accept\n{Style.RESET_ALL}")
+
+            confirm = input(f">>> ").strip().lower()
+
+            if confirm.startswith("m"):
+                print(Fore.YELLOW + "\n[ Modify Channels ]" + Style.RESET_ALL)
+                print(
+                    f"{Fore.LIGHTBLACK_EX}channel number to modify (1-8) or 'done' to finish\n{Style.RESET_ALL}")
+                while True:
+                    channel_input = input(f">>> ").strip().lower()
+
+                    if channel_input == "done":
+                        break
+
+                    try:
+                        channel_to_modify = int(channel_input)
+                        if channel_to_modify not in range(1, 9):
+                            print(
+                                f"  {Fore.RED}Error: Channel must be 1-8{Style.RESET_ALL}")
+                            continue
+
+                        # if slot_to_modify not in self.connected_devices:
+                        #     print(
+                        #         f"  {Fore.RED}Error: No device in this slot{Style.RESET_ALL}")
+                        #     continue
+
+                        new_name = input(
+                            f"  {Fore.GREEN}New name for channel {channel_to_modify}{Style.RESET_ALL}: "
+                        ).strip()
+
+                        if not new_name:
+                            print(
+                                f"  {Fore.RED}Error: Name cannot be empty{Style.RESET_ALL}")
+                            continue
+                        elif new_name != "skip":
+                            self.device_names[channel_to_modify-1] = new_name
+
+                        print(
+                            f"  {Fore.BLUE}Updated channel {channel_to_modify}\n{Style.RESET_ALL}")
+                    except ValueError:
+                        print(
+                            f"  {Fore.RED}Error: Enter a channel number (1-8) or 'done'{Style.RESET_ALL}")
+            else:
                 break
-            
-            device_names[current_position] = name
-            current_position += 1
-        
-        return device_names
     
-    def verify_devices(self):
-        """Check that each named device is present by applying low voltage."""
-        print("\nVerifying devices...")
+    def indentify_populated_channels(self):
+        """Check whether a device on each channel is present by applying low voltage."""
+        print("\Indentify populated channels...")
         self.power_supply.voltage_ramp_rate_set(100)
         self.power_supply.voltage_setpoint_set(15)  # Low voltage for verification
         self.power_supply.on()
-        time.sleep(1)  # Allow voltage to stabilize
         
-        valid_devices = []
-        problems = []
+        self.current_multimeter.configure_rapid()
+        self.current_multimeter.initiate()
+        time.sleep(0.5)
         
-        for device_idx in self.active_devices:
-            # Switch to this device
-            self.multiplexer.set_channel(device_idx, 1)
-            time.sleep(0.5)  # Settling time
+        self.current_multimeter.read_value(clear_extra=True)
+        self.multiplexer.arm()
+        
+        time.sleep(0.5)  # Allow voltage to stabilize
+        
+        valid_channels = []
+        
+        for i in range(8):
+            self.multiplexer.set_channel(i, 1)
+            time.sleep(0.2)  # Settling time
             
             # Measure current
             self.current_multimeter.initiate()
-            time.sleep(1)
+            time.sleep(0.5)
             current = self.current_multimeter.read_value(clear_extra=True)
             if current is None:
-                problems.append(f"Device {device_idx + 1} ({self.device_names[device_idx]}): No reading")
+                print(f"Channel {i + 1}: No reading")
                 continue
             
             try:
                 current = float(current)
-                if current < self.verification_threshold:
-                    problems.append(f"Device {device_idx + 1} ({self.device_names[device_idx]}): Low current ({current:.2e}A)")
+                if current < self.populated_threshold:
+                    print(f"Channel {i + 1}: No device connected, low current  || ({(current*1e6):.2e}uA)")
                 else:
-                    valid_devices.append(device_idx)
-                    print(f"Device {device_idx + 1} ({self.device_names[device_idx]}) OK - current: {current*1e6:.2e}uA")
+                    valid_channels.append(i)
+                    print(f"Channel {i + 1}: OK                                || ({(current*1e6):.2e}uA)")
             except ValueError:
-                problems.append(f"Device {device_idx + 1} ({self.device_names[device_idx]}): Invalid current reading")
-            
-            # Turn off this device
-            self.multiplexer.set_channel(device_idx, 0)
-        
-        # Show any problems found
-        if problems:
-            print("\nDevice verification issues:")
-            for problem in problems:
-                print(f" - {problem}")
+                print(f"Channel {i + 1}: Invalid current reading")
+                self.multiplexer.set_channel(i, 0)
         
         # Update active devices list to only include verified devices
-        self.active_devices = valid_devices
+        self.connected_devices = valid_channels
         
         # Reset power supply
         self.power_supply.voltage_setpoint_set(0)
         
-        return bool(self.active_devices)
+        return bool(self.connected_devices)
     
     def perform_measurement(self):
         """Do one measurement cycle for the current device."""
@@ -1036,7 +1148,7 @@ class TestController:
             self.current_device_idx = 0
         else:
             self.current_device_idx += 1
-            if not self.current_device_idx in self.active_devices:
+            if not self.current_device_idx in self.connected_devices:
                 print(f"End of tests") #---------------
                 self.multiplexer.send_command("WA,255")
                 self.power_supply.voltage_ramp_rate_set(1)
