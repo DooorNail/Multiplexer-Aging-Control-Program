@@ -112,3 +112,172 @@ def get_device_names():
 
 
 print(get_self.device_names([0, 1, 7]))
+
+
+    def run_self_test(self):
+        """Run comprehensive self-test of all system components following specified procedure."""
+        
+        # Header
+        print(Fore.CYAN + "\n"*5 + "=" * 50 + "\n"
+            + " SELF TEST ".center(50, "~") + "\n"
+            + "=" * 50 + Style.RESET_ALL)
+        
+        # Test parameters
+        test_voltage = 15.0  # Voltage for testing
+        current_limit = 1.5e-3  # Current limit for testing
+        current_tolerance = 0.2  # 20% tolerance for current measurements
+        voltage_tolerance = 0.1  # 10% tolerance for voltage measurements
+        idle_current_threshold = 100e-9  # 100nA threshold for armed state
+        discharge_current_threshold = 0.5e-3  # Expected current when discharge is on
+        max_retries = 3
+        
+        # Configure instruments
+        self.current_multimeter.configure_rapid()
+        self.current_multimeter.initiate()
+        
+        # Initialize system state
+        print(Fore.YELLOW + "\n[ Initializing Test State ]" + Style.RESET_ALL)
+        self.multiplexer.disarm()
+        self.power_supply.voltage_ramp_rate_set(100)
+        
+        self.power_supply.voltage_setpoint_set(test_voltage)
+        time.sleep(0.5)
+
+        # -------------------------------------------------------------------
+        # Test Phase 1: Disarmed state verification
+        # -------------------------------------------------------------------
+        print(Fore.YELLOW + "\n[ Disarmed State Test ]" + Style.RESET_ALL)
+        print("  - System disarmed, power supply on")
+        
+        for attempt in range(max_retries):
+            try:
+                # Turn on power supply
+                self.power_supply.on()
+                time.sleep(1)  # Allow current to stabilize
+                
+                # Verify current
+                self.current_multimeter.initiate()
+                time.sleep(0.5)
+                current = self.current_multimeter.read_value(clear_extra=True)
+                
+                if current is None:
+                    raise Exception("No current reading from multimeter")
+                    
+                current = float(current)
+                print(f"  Measured current: {current*1e3:.2f}mA")
+                
+                if abs(current - current_limit) > current_tolerance * current_limit:
+                    raise Exception(f"Current out of range (expected ~{current_limit*1e3:.1f}mA ± {current_tolerance*100:.0f}%)")
+                
+                print(Fore.GREEN + "  ✓ Disarmed current OK" + Style.RESET_ALL)
+                break
+                
+            except Exception as e:
+                if attempt == max_retries - 1:
+                    raise Exception(f"Disarmed state test failed: {str(e)}")
+                print(Fore.YELLOW + f"  ! Retrying: {str(e)}" + Style.RESET_ALL)
+                time.sleep(1)
+
+        # -------------------------------------------------------------------
+        # Test Phase 2: Armed state verification
+        # -------------------------------------------------------------------
+        print(Fore.YELLOW + "\n[ Armed State Test ]" + Style.RESET_ALL)
+        print("  - Arming multiplexer")
+        
+        for attempt in range(max_retries):
+            try:
+                # Arm multiplexer
+                self.multiplexer.arm()
+                time.sleep(1)  # Allow system to stabilize
+                
+                # Verify voltage
+                ps_voltage = self.power_supply.read_voltage()
+                if ps_voltage is None:
+                    raise Exception("No voltage reading from power supply")
+                    
+                print(f"  Measured voltage: {ps_voltage:.2f}V")
+                
+                if abs(ps_voltage - test_voltage) > voltage_tolerance * test_voltage:
+                    raise Exception(f"Voltage out of tolerance (expected {test_voltage}V ± {voltage_tolerance*100:.0f}%)")
+                
+                # Verify current
+                self.current_multimeter.initiate()
+                time.sleep(0.5)
+                current = self.current_multimeter.read_value(clear_extra=True)
+                
+                if current is None:
+                    raise Exception("No current reading when armed")
+                    
+                current = float(current)
+                print(f"  Measured current: {current*1e9:.2f}nA")
+                
+                if current > idle_current_threshold:
+                    raise Exception(f"Current too high (expected <{idle_current_threshold*1e9:.1f}nA)")
+                
+                print(Fore.GREEN + "  ✓ Armed state OK (voltage and current)" + Style.RESET_ALL)
+                break
+                
+            except Exception as e:
+                if attempt == max_retries - 1:
+                    raise Exception(f"Armed state test failed: {str(e)}")
+                print(Fore.YELLOW + f"  ! Retrying: {str(e)}" + Style.RESET_ALL)
+                self.multiplexer.disarm()
+                time.sleep(1)
+                self.multiplexer.arm()
+                time.sleep(1)
+
+        # -------------------------------------------------------------------
+        # Test Phase 3: Discharge circuit verification
+        # -------------------------------------------------------------------
+        print(Fore.YELLOW + "\n[ Discharge Circuit Test ]" + Style.RESET_ALL)
+        print("  - Activating discharge resistors")
+        
+        for attempt in range(max_retries):
+            try:
+                # Turn on discharge
+                self.multiplexer.discharge(1)
+                time.sleep(1)  # Allow current to stabilize
+                
+                # Verify current
+                self.current_multimeter.initiate()
+                time.sleep(0.5)
+                current = self.current_multimeter.read_value(clear_extra=True)
+                
+                if current is None:
+                    raise Exception("No current reading with discharge on")
+                    
+                current = float(current)
+                print(f"  Measured current: {current*1e3:.2f}mA")
+                
+                if current < discharge_current_threshold:
+                    raise Exception(f"Discharge current too low (expected >{discharge_current_threshold*1e3:.1f}mA)")
+                
+                print(Fore.GREEN + "  ✓ Discharge circuit OK" + Style.RESET_ALL)
+                break
+                
+            except Exception as e:
+                if attempt == max_retries - 1:
+                    raise Exception(f"Discharge circuit test failed: {str(e)}")
+                print(Fore.YELLOW + f"  ! Retrying: {str(e)}" + Style.RESET_ALL)
+                time.sleep(1)
+
+        # -------------------------------------------------------------------
+        # Clean up and completion
+        # -------------------------------------------------------------------
+        print(Fore.YELLOW + "\n[ Completing Test ]" + Style.RESET_ALL)
+        try:
+            print("  - Returning to safe state")
+            self.multiplexer.discharge(0)
+            self.multiplexer.disarm()
+            self.power_supply.voltage_setpoint_set(0)
+            time.sleep(0.5)
+            
+            print(Fore.GREEN + "  ✓ System returned to safe state" + Style.RESET_ALL)
+            
+            # Final success message
+            print(Fore.GREEN + "\n" + "=" * 50 + "\n"
+                + " SELF TEST PASSED ".center(50, "~") + "\n"
+                + "=" * 50 + Style.RESET_ALL)
+            
+        except Exception as e:
+            raise Exception(f"Failed to return to safe state: {str(e)}")
