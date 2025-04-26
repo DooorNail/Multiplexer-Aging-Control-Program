@@ -8,11 +8,11 @@ Breakdown or aging?
     
     - Whether to ramp each device individually
     --> how many times?
-    --> stop during ramp if device has "failed"?
+    --> stop during ramp if device has "failed"
     
     - Whether to ramp all of the devices up to a hold voltage together afterwards
     --> Voltage and time?
-    --> should bad devices be identified and remove if affecting the other ones?
+    --> bad devices should be identified and remove if affecting the other ones
 
     Breakdown options:
     - Max voltage
@@ -526,8 +526,7 @@ class DataLogger:
         Initialize the logger for multiple devices.
         device_names: list of names for each device position (empty string means unused)
         """
-        self.test_id = test_id
-        self.device_names = device_names
+        # self.test_id = test_id
         self.minimum_measurement_count = minimum_measurement_count
         self.data_files = {}
         self.active_device = None
@@ -543,6 +542,17 @@ class DataLogger:
                     'data_points': [],
                     'header_written': False
                 }
+
+        filename = f"{base_filename}_GROUP_HOLD.csv"
+        self.data_files[999] = {
+            'name': "GROUP",
+            'filename': filename,
+            'data_points': [],
+            'header_written': False
+        }
+
+    def get_current_device_name(self):
+        return self.data_files[self.active_device]['name']
 
     def set_active_device(self, device_idx):
         """Set which device is currently being measured."""
@@ -871,10 +881,12 @@ class DataGUI:
 
 
 class TestController:
-    def __init__(self):
+    def __init__(self, stop_event):
         """
         Initialize all devices and the data logger.
-        """
+        """        
+        self.stop_event = stop_event
+        
         # Initialize the temperature/humidity sensor
         # self.sensor = TemperatureHumiditySensor(port='COM5', baudrate=4800)
 
@@ -931,6 +943,11 @@ class TestController:
         self.measurement_interval = 0.05
 
         self.populated_threshold = 1e-7  # Minimum current for device verification
+
+        self.hold_voltage = self.power_supply.charging_curve[-1][0]
+        self.hold_current = 0.5e-3
+        self.hold_duration = 12 * 60 * 60 # time to hold the group at voltage in s
+
 
         charging_curve_duration = 0
         for seg in self.power_supply.charging_curve:
@@ -1254,20 +1271,31 @@ class TestController:
 
         return bool(self.connected_devices)
 
-    def perform_measurement(self):
+    def test_loop(self):
         """Do one measurement cycle for the current device."""
         if self.current_device_idx is None:
             self.start_next_device_test()
         elif self.current_device_idx == 999:
-            return False
+            elapsed = (datetime.datetime.now() -
+                       self.test_start_time).total_seconds()
+            if elapsed > self.hold_duration:
+                self.power_supply.off()
+                self.multiplexer.discharge(1)
+                time.sleep(5)
+                print("Hold complete, ending measurements")
+                self.logger.push_data_to_file(999)
+                self.stop_event.set()
+        else:
+            # run individual ramp
+            self.power_supply.run_program()
 
-        # Update the power supply program
-        self.power_supply.run_program()
+            if self.power_supply.sequence_complete:
+                self.finish_device_test(self.current_device_idx)
+                self.start_next_device_test()
 
-        if self.power_supply.sequence_complete:
-            self.finish_device_test(self.current_device_idx)
-            self.start_next_device_test()
+        return self.perform_measurement()
 
+    def perform_measurement(self):
         current_value = self.current_multimeter.read_value()
         if current_value is None:
             return False  # Skip if no data
@@ -1292,24 +1320,36 @@ class TestController:
         elapsed = (datetime.datetime.now() -
                    self.test_start_time).total_seconds()
         try:
+            # self.current_reading = (
+            #     self.device_names[self.current_device_idx], elapsed, float(current_value))
+            # self.voltage_reading = (
+            #     self.device_names[self.current_device_idx], elapsed, ps_voltage)
+
+            # # Print status
+            # print(f"[{datetime.datetime.now()}] {self.device_names[self.current_device_idx]} | "
+            #       f"{elapsed:.1f}s | Current: {float(current_value):.4g} | "
+            #       f"PS Voltage: {ps_voltage:.1f} | Sensor: {sensor_data_str}")
+
             self.current_reading = (
-                self.device_names[self.current_device_idx], elapsed, float(current_value))
+                self.logger.get_current_device_name(), elapsed, float(current_value))
             self.voltage_reading = (
-                self.device_names[self.current_device_idx], elapsed, ps_voltage)
+                self.logger.get_current_device_name(), elapsed, ps_voltage)
 
             # Print status
-            print(f"[{datetime.datetime.now()}] {self.device_names[self.current_device_idx]} | "
+            print(f"[{datetime.datetime.now()}] {self.logger.get_current_device_name()} | "
                   f"{elapsed:.1f}s | Current: {float(current_value):.4g} | "
                   f"PS Voltage: {ps_voltage:.1f} | Sensor: {sensor_data_str}")
+
+            return True
         except Exception as e:
             logging.error("Error converting measurement values: %s", e)
 
-        return True
+        return False
 
     def finish_device_test(self, device_idx):
         """Clean up after testing a device."""
         print(
-            f"Completing test for device {self.device_names[self.current_device_idx]}")
+            f"Completing test for channel {device_idx+1}")
 
         # Ramp down voltage
         self.power_supply.voltage_setpoint_set(0)
@@ -1336,15 +1376,18 @@ class TestController:
                 print(f"End of tests")  # ---------------
                 self.multiplexer.send_command("WA,255")
                 self.power_supply.voltage_ramp_rate_set(1)
-                self.power_supply.voltage_setpoint_set(520)
-                self.power_supply.current_limit_set(0.5e-3)
+                self.power_supply.voltage_setpoint_set(self.hold_voltage)
+                self.power_supply.current_limit_set(self.hold_current)
                 self.current_device_idx = 999
+                self.test_start_time = datetime.datetime.now()
+                self.logger.set_active_device(self.current_device_idx)
                 return
 
-        print(
-            f"\nStarting test for device {self.current_device_idx + 1}: {self.device_names[self.current_device_idx]}")
-
         self.logger.set_active_device(self.current_device_idx)
+        
+        print(
+            f"\nStarting test for device {self.current_device_idx + 1}: {self.logger.get_current_device_name()}")
+
 
         # Turn on this device
         self.multiplexer.set_channel(self.current_device_idx, 1)
@@ -1492,27 +1535,28 @@ class CSVTestController:
 
 
 def main():
+    # Create a thread-safe queue for measurement data.
+    measurement_queue = queue.Queue()
+
+    # Create an Event to signal shutdown.
+    stop_event = threading.Event()
+    
     # Initialize the controller and GUI.
     try:
-        controller = TestController()
+        controller = TestController(stop_event)
     except serial.SerialException:
         input("[ERROR] One or more serial devices not present. Press enter to run with simulated data:\n>>>")
         controller = CSVTestController(
             csv_filename="250226_TP01,07_Ageing.csv")
     gui = DataGUI(controller)
 
-    # Create a thread-safe queue for measurement data.
-    measurement_queue = queue.Queue()
-
-    # Create an Event to signal shutdown.
-    stop_event = threading.Event()
 
     # Measurement thread function.
     def measurement_thread():
         while not stop_event.is_set():
             try:
                 # Perform one measurement cycle.
-                if controller.perform_measurement():
+                if controller.test_loop():
                     # Package the latest measurement data.
                     measurement_data = {
                         # (device_name, elapsed_time, dmm1)
