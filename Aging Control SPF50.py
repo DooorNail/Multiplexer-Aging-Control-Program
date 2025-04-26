@@ -439,12 +439,14 @@ class PowerSupply:
             if elapsed > segment_time:
                 self.prgm_index += 1
                 if self.prgm_index >= len(self.charging_curve):
-                    print("[PS] End of sequence...")
+                    print(
+                        "{Fore.CYAN}[PS]{Style.RESET_ALL} End of sequence...")
                     self.sequence_complete = True
                     self.prgm_index -= 1
                     return
 
-                print(f"[PS] Next program segment {self.prgm_index}.")
+                print(
+                    f"{Fore.CYAN}[PS]{Style.RESET_ALL} Next program segment {self.prgm_index}.")
                 self.segment_start_time = datetime.datetime.now()
                 new_ramp_rate = self.charging_curve[self.prgm_index][1]
                 new_voltage = self.charging_curve[self.prgm_index][0]
@@ -884,9 +886,9 @@ class TestController:
     def __init__(self, stop_event):
         """
         Initialize all devices and the data logger.
-        """        
+        """
         self.stop_event = stop_event
-        
+
         # Initialize the temperature/humidity sensor
         # self.sensor = TemperatureHumiditySensor(port='COM5', baudrate=4800)
 
@@ -896,7 +898,7 @@ class TestController:
         print(resources)
         if len(resources) < 1:
             raise Exception("Not enough VISA resources found for multimeters.")
-        
+
         for resource in resources:
             if "MY60044278" in resource:
                 self.current_multimeter = Multimeter(
@@ -904,9 +906,6 @@ class TestController:
                 break
         if not self.current_multimeter:
             raise Exception("Multimeter not found")
-        
-        
-                
 
         # Initialize the power supply
         self.power_supply = PowerSupply(
@@ -926,7 +925,7 @@ class TestController:
 
         # Get device names from user
         self.get_device_names()
-        
+
         self.multiplexer.discharge(0)
 
         # Filter out empty names (unused positions)
@@ -957,16 +956,19 @@ class TestController:
 
         self.hold_voltage = self.power_supply.charging_curve[-1][0]
         self.hold_current = 0.5e-3
-        self.hold_duration = 12 * 60 * 60 # time to hold the group at voltage in s
-
+        self.hold_duration = 12 * 60 * 60  # time to hold the group at voltage in s
 
         charging_curve_duration = 0
         for seg in self.power_supply.charging_curve:
             final_voltage, ramp_rate, seg_total_time = seg
             charging_curve_duration += seg_total_time
 
+        print(Fore.CYAN + "\n"*5 + "=" * 50 + "\n"
+              + " INDIVIDUAL RAMPS ".center(50, "~") + "\n"
+              + "=" * 50 + "\n" + Style.RESET_ALL)
+
         print(
-            f"Estimated runtime: roughly {len(self.connected_devices) * charging_curve_duration / 60} minutes")
+            f"{Fore.LIGHTBLACK_EX}  - estimated runtime: roughly {len(self.connected_devices) * charging_curve_duration / 60} minutes")
 
         self.current_multimeter.configure()
         self.current_multimeter.initiate()
@@ -1138,7 +1140,7 @@ class TestController:
         # Header
         print(Fore.CYAN + "\n"*5 + "=" * 50 + "\n"
               + " DEVICE NAMING ".center(50, "~") + "\n"
-              + "=" * 50 + Style.RESET_ALL)
+              + "=" * 50 + "\n" + Style.RESET_ALL)
 
         print(Fore.YELLOW + "\n[ Enter Device Names ]" + Style.RESET_ALL)
         print(f"{Fore.LIGHTBLACK_EX}or type 'skip' to ignore\n{Style.RESET_ALL}")
@@ -1167,16 +1169,16 @@ class TestController:
             # ---------------- Confirmation Table -----------------
             print(Fore.YELLOW + "\n\n[ Current Names ]" + Style.RESET_ALL)
             print(
-                f"\n{Fore.GREEN}  Channel {Style.RESET_ALL}│ {Fore.BLUE}Name{Style.RESET_ALL}")
+                f"\n{Fore.GREEN}  Channel {Style.RESET_ALL}│ {Fore.CYAN}Name{Style.RESET_ALL}")
             print(f"{'─' * 10}┼{'─' * 7}")
             for i in range(8):
                 status = (
-                    Fore.BLUE + self.device_names[i] + Style.RESET_ALL
+                    Fore.CYAN + self.device_names[i] + Style.RESET_ALL
                     if self.device_names[i]
                     else Fore.LIGHTBLACK_EX + "----" + Style.RESET_ALL
                 )
                 print(f" {Fore.GREEN}{i+1:8}{Style.RESET_ALL} " +
-                      f"│ {Fore.BLUE}{status}{Style.RESET_ALL}")
+                      f"│ {Fore.CYAN}{status}{Style.RESET_ALL}")
             # --------------------------------------------------------
 
             print(Fore.YELLOW + "\n\n[ Confirm or Modify ]" + Style.RESET_ALL)
@@ -1219,7 +1221,7 @@ class TestController:
                             self.device_names[channel_to_modify-1] = new_name
 
                         print(
-                            f"  {Fore.BLUE}Updated channel {channel_to_modify}\n{Style.RESET_ALL}")
+                            f"  {Fore.CYAN}Updated channel {channel_to_modify}\n{Style.RESET_ALL}")
                     except ValueError:
                         print(
                             f"  {Fore.RED}Error: Enter a channel number (1-8) or 'done'{Style.RESET_ALL}")
@@ -1230,13 +1232,13 @@ class TestController:
         """Check whether a device on each channel is present by applying low voltage."""
 
         populated_threshold = 100e-9
-        
+
         # print(Fore.YELLOW + "\n[ Indentify populated channels ]" + Style.RESET_ALL)
         # Header
         print(Fore.CYAN + "\n"*5 + "=" * 50 + "\n"
               + " INDENTIFY POPULATED CHANNELS ".center(50, "~") + "\n"
               + "=" * 50 + Style.RESET_ALL)
-        
+
         self.power_supply.voltage_ramp_rate_set(100)
         self.power_supply.voltage_setpoint_set(
             15)  # Low voltage for verification
@@ -1255,11 +1257,11 @@ class TestController:
 
         for i in range(8):
             self.multiplexer.set_channel(i, 1)
-            time.sleep(0.5)  # Settling time
+            time.sleep(0.2)  # Settling time
 
             # Measure current
             self.current_multimeter.initiate()
-            time.sleep(1)
+            time.sleep(0.5)
             current = self.current_multimeter.read_value(clear_extra=True)
             if current is None:
                 print(f"{Fore.RED}Channel {i + 1}: No reading")
@@ -1276,16 +1278,15 @@ class TestController:
                         f"{Fore.GREEN}Channel {i + 1}: OK                                || ({(current*1e6):.2g}uA)")
             except ValueError:
                 print(f"{Fore.RED}Channel {i + 1}: Invalid current reading")
-            
+
             self.multiplexer.set_channel(i, 0)
-            
 
         # Update active devices list to only include verified devices
         self.connected_devices = valid_channels
 
         # Reset power supply
         self.power_supply.voltage_setpoint_set(0)
-        
+
         self.multiplexer.discharge(1)
 
         return bool(self.connected_devices)
@@ -1355,9 +1356,9 @@ class TestController:
                 self.logger.get_current_device_name(), elapsed, ps_voltage)
 
             # Print status
-            print(f"[{datetime.datetime.now()}] {self.logger.get_current_device_name()} | "
-                  f"{elapsed:.1f}s | Current: {float(current_value):.4g} | "
-                  f"PS Voltage: {ps_voltage:.1f} | Sensor: {sensor_data_str}")
+            # print(f"[{datetime.datetime.now()}] {self.logger.get_current_device_name()} | "
+            #       f"{elapsed:.1f}s | Current: {float(current_value):.4g} | "
+            #       f"PS Voltage: {ps_voltage:.1f} | Sensor: {sensor_data_str}")
 
             return True
         except Exception as e:
@@ -1367,8 +1368,7 @@ class TestController:
 
     def finish_device_test(self, device_idx):
         """Clean up after testing a device."""
-        print(
-            f"Completing test for channel {device_idx+1}")
+        print(f"{Fore.GREEN} Completed ramp {Style.RESET_ALL}")
 
         # Ramp down voltage
         self.power_supply.voltage_setpoint_set(0)
@@ -1392,7 +1392,10 @@ class TestController:
         else:
             self.current_device_idx += 1
             if not self.current_device_idx in self.connected_devices:
-                print(f"End of tests")  # ---------------
+                print(Fore.CYAN + "\n"*5 + "=" * 50 + "\n"
+                      + " GROUP HOLD ".center(50, "~") + "\n"
+                      + "=" * 50 + "\n" + Style.RESET_ALL)
+                # print(f"End of tests")  # ---------------
                 self.multiplexer.send_command("WA,255")
                 self.power_supply.voltage_ramp_rate_set(1)
                 self.power_supply.voltage_setpoint_set(self.hold_voltage)
@@ -1403,10 +1406,9 @@ class TestController:
                 return
 
         self.logger.set_active_device(self.current_device_idx)
-        
-        print(
-            f"\nStarting test for device {self.current_device_idx + 1}: {self.logger.get_current_device_name()}")
 
+        print(
+            f"{Fore.YELLOW} \n[ Starting on channel {self.current_device_idx + 1}: {self.logger.get_current_device_name()} ] {Style.RESET_ALL}")
 
         # Turn on this device
         self.multiplexer.set_channel(self.current_device_idx, 1)
@@ -1559,7 +1561,7 @@ def main():
 
     # Create an Event to signal shutdown.
     stop_event = threading.Event()
-    
+
     # Initialize the controller and GUI.
     try:
         controller = TestController(stop_event)
@@ -1569,8 +1571,8 @@ def main():
             csv_filename="250226_TP01,07_Ageing.csv")
     gui = DataGUI(controller)
 
-
     # Measurement thread function.
+
     def measurement_thread():
         while not stop_event.is_set():
             try:
