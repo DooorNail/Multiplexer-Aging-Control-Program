@@ -227,22 +227,22 @@ class PowerSupply:
             # self.charging_curve = [
             #     [0, 0, 0],
             #     [10, 1, 15],
-            #     [20, 0.7, 30],
-            #     [50, 2, 40],
-            #     [150, 5, 40],
-            #     [300, 2, 120]
+            #     [20, 1, 15],
+            #     [50, 2, 40]
+            #     # [150, 5, 40],
+            #     # [300, 2, 120]
             # ]
             self.charging_curve = [
                 [0, 0, 0],
                 [100, 5, 140],
-                [200, 5, 140],
+                [200, 2, 140],
                 [250, 2, 240],
                 [300, 2, 240],
                 [350, 1, 290],
                 [400, 1, 350],
                 [450, 0.75, 360],
                 [500, 0.5, 400],
-                [520, 0.1, 600]
+                [520, 0.1, 900]
             ]
         else:
             self.charging_curve = charging_curve
@@ -896,8 +896,17 @@ class TestController:
         print(resources)
         if len(resources) < 1:
             raise Exception("Not enough VISA resources found for multimeters.")
-        self.current_multimeter = Multimeter(
-            self.rm.open_resource(resources[0]))
+        
+        for resource in resources:
+            if "MY60044278" in resource:
+                self.current_multimeter = Multimeter(
+                    self.rm.open_resource(resource))
+                break
+        if not self.current_multimeter:
+            raise Exception("Multimeter not found")
+        
+        
+                
 
         # Initialize the power supply
         self.power_supply = PowerSupply(
@@ -917,6 +926,8 @@ class TestController:
 
         # Get device names from user
         self.get_device_names()
+        
+        self.multiplexer.discharge(0)
 
         # Filter out empty names (unused positions)
         self.connected_devices = [
@@ -999,7 +1010,7 @@ class TestController:
             try:
                 # Verify current
                 self.current_multimeter.initiate()
-                time.sleep(0.5)
+                time.sleep(1)
                 current = self.current_multimeter.read_value(clear_extra=True)
 
                 if current is None:
@@ -1157,7 +1168,7 @@ class TestController:
             print(Fore.YELLOW + "\n\n[ Current Names ]" + Style.RESET_ALL)
             print(
                 f"\n{Fore.GREEN}  Channel {Style.RESET_ALL}│ {Fore.BLUE}Name{Style.RESET_ALL}")
-            print(f"{"─" * 10}┼{"─" * 7}")
+            print(f"{'─' * 10}┼{'─' * 7}")
             for i in range(8):
                 status = (
                     Fore.BLUE + self.device_names[i] + Style.RESET_ALL
@@ -1217,11 +1228,15 @@ class TestController:
 
     def indentify_populated_channels(self):
         """Check whether a device on each channel is present by applying low voltage."""
+
+        populated_threshold = 100e-9
+        
         # print(Fore.YELLOW + "\n[ Indentify populated channels ]" + Style.RESET_ALL)
         # Header
         print(Fore.CYAN + "\n"*5 + "=" * 50 + "\n"
               + " INDENTIFY POPULATED CHANNELS ".center(50, "~") + "\n"
               + "=" * 50 + Style.RESET_ALL)
+        
         self.power_supply.voltage_ramp_rate_set(100)
         self.power_supply.voltage_setpoint_set(
             15)  # Low voltage for verification
@@ -1240,11 +1255,11 @@ class TestController:
 
         for i in range(8):
             self.multiplexer.set_channel(i, 1)
-            time.sleep(0.2)  # Settling time
+            time.sleep(0.5)  # Settling time
 
             # Measure current
             self.current_multimeter.initiate()
-            time.sleep(0.5)
+            time.sleep(1)
             current = self.current_multimeter.read_value(clear_extra=True)
             if current is None:
                 print(f"{Fore.RED}Channel {i + 1}: No reading")
@@ -1252,22 +1267,26 @@ class TestController:
 
             try:
                 current = float(current)
-                if current < self.populated_threshold:
+                if current < populated_threshold:
                     print(
-                        f"{Fore.RED}Channel {i + 1}: No device connected, low current  || ({(current*1e6):.2e}uA)")
+                        f"{Fore.RED}Channel {i + 1}: No device connected, low current  || ({(current*1e6):.2g}uA)")
                 else:
                     valid_channels.append(i)
                     print(
-                        f"{Fore.GREEN}Channel {i + 1}: OK                                || ({(current*1e6):.2e}uA)")
+                        f"{Fore.GREEN}Channel {i + 1}: OK                                || ({(current*1e6):.2g}uA)")
             except ValueError:
                 print(f"{Fore.RED}Channel {i + 1}: Invalid current reading")
-                self.multiplexer.set_channel(i, 0)
+            
+            self.multiplexer.set_channel(i, 0)
+            
 
         # Update active devices list to only include verified devices
         self.connected_devices = valid_channels
 
         # Reset power supply
         self.power_supply.voltage_setpoint_set(0)
+        
+        self.multiplexer.discharge(1)
 
         return bool(self.connected_devices)
 
