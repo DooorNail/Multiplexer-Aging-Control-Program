@@ -1,4 +1,4 @@
-# 1000002
+# 1000003
 
 """
 ==========  TODO  ==========
@@ -447,7 +447,7 @@ class PowerSupply:
                 self.prgm_index += 1
                 if self.prgm_index >= len(self.charging_curve):
                     print(
-                        "{Fore.CYAN}[PS]{Style.RESET_ALL} End of sequence...")
+                        f"{Fore.CYAN}[PS]{Style.RESET_ALL} End of sequence...")
                     self.sequence_complete = True
                     self.prgm_index -= 1
                     return
@@ -1344,7 +1344,9 @@ class TestController:
 
         sensor_data_str = ","
 
-        ps_voltage = self.power_supply.read_voltage()
+        # ps_voltage = self.power_supply.read_voltage()
+
+        ps_voltage = 6
 
         # Log data to file
         log_line = f"{datetime.datetime.now()},{current_value},{sensor_data_str},{ps_voltage}\n"
@@ -1359,10 +1361,7 @@ class TestController:
             # self.voltage_reading = (
             #     self.device_names[self.current_device_idx], elapsed, ps_voltage)
 
-            # Print status
-            print(f"[{datetime.datetime.now()}] {self.device_names[self.current_device_idx]} | "
-                  f"{elapsed:.1f}s | Current: {float(current_value):.4g} | "
-                  f"PS Voltage: {ps_voltage:.1f} | Sensor: {sensor_data_str}")
+
 
             self.current_reading = (
                 self.logger.get_current_device_name(), elapsed, float(current_value))
@@ -1370,9 +1369,9 @@ class TestController:
                 self.logger.get_current_device_name(), elapsed, ps_voltage)
 
             # Print status
-            # print(f"[{datetime.datetime.now()}] {self.logger.get_current_device_name()} | "
-            #       f"{elapsed:.1f}s | Current: {float(current_value):.4g} | "
-            #       f"PS Voltage: {ps_voltage:.1f} | Sensor: {sensor_data_str}")
+            print(f"[{datetime.datetime.now()}] {self.logger.get_current_device_name()} | "
+                  f"{elapsed:.1f}s | Current: {float(current_value):.4g} | "
+                  f"PS Voltage: {ps_voltage:.1f} | Sensor: {sensor_data_str}")
 
             return True
         except Exception as e:
