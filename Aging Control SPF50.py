@@ -1,4 +1,4 @@
-# 1000004
+# 1000005
 
 """
 ==========  TODO  ==========
@@ -900,6 +900,9 @@ class TestController:
         Initialize all devices and the data logger.
         """
         self.stop_event = stop_event
+        
+        self.previous_ps_read = 0
+        self.ps_read_interval = 2 #time between reads in seconds
 
         # Initialize the temperature/humidity sensor
         # self.sensor = TemperatureHumiditySensor(port='COM5', baudrate=4800)
@@ -1344,16 +1347,20 @@ class TestController:
 
         sensor_data_str = ","
 
-        # ps_voltage = self.power_supply.read_voltage()
+        
+        time_now = datetime.datetime.now()
 
-        ps_voltage = 6
-
+        if (time_now - self.previous_ps_read).total_seconds() > self.ps_read_interval:
+            ps_voltage = self.power_supply.read_voltage()
+        else:
+            ps_voltage = ""
+        
         # Log data to file
-        log_line = f"{datetime.datetime.now()},{current_value},{sensor_data_str},{ps_voltage}\n"
+        log_line = f"{time_now},{current_value},{sensor_data_str},{ps_voltage}\n"
         self.logger.log_data(log_line)
 
         # Update readings for GUI
-        elapsed = (datetime.datetime.now() -
+        elapsed = (time_now -
                    self.test_start_time).total_seconds()
         try:
             # self.current_reading = (
@@ -1367,7 +1374,7 @@ class TestController:
                 self.logger.get_current_device_name(), elapsed, ps_voltage)
 
             # Print status
-            print(f"[{datetime.datetime.now()}] {self.logger.get_current_device_name()} | "
+            print(f"[{time_now}] {self.logger.get_current_device_name()} | "
                   f"{elapsed:.1f}s | Current: {float(current_value):.4g} | "
                   f"PS Voltage: {ps_voltage:.1f} | Sensor: {sensor_data_str}")
 
