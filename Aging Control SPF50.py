@@ -1,3 +1,5 @@
+#1000001
+
 """
 ==========  TODO  ==========
 
@@ -67,8 +69,8 @@ class Multimeter:
             time.sleep(0.1)
             # self.resource.write(':ZERO:AUTO OFF')
             self.resource.write(':SAMPle:COUNt %d' % 1)
-            self.resource.write(':CURRent:DC:APER %s' % 'MAX')
-            # self.resource.write(':CURRent:DC:APER 0.5')
+            # self.resource.write(':CURRent:DC:APER %s' % 'MAX')
+            self.resource.write(':CURRent:DC:APER 0.5')
             self.resource.write(':SAMPle:SOURce %s' % 'IMMediate')
             self.resource.write(':TRIGger:SOURce %s' % 'IMMediate')
             self.resource.write(':TRIG:COUN INF')
@@ -223,17 +225,30 @@ class PowerSupply:
             #     # [150, 5, 40],
             #     # [300, 2, 120]
             # ]
+            # self.charging_curve = [
+            #     [0, 0, 0],
+            #     [100, 5, 140],
+            #     [200, 2, 140],
+            #     [250, 2, 240],
+            #     [300, 2, 240],
+            #     [350, 1, 290],
+            #     [400, 1, 350],
+            #     [450, 0.75, 360],
+            #     [500, 0.5, 400],
+            #     [520, 0.1, 900]
+            # ]
             self.charging_curve = [
                 [0, 0, 0],
-                [100, 5, 140],
-                [200, 2, 140],
-                [250, 2, 240],
-                [300, 2, 240],
-                [350, 1, 290],
-                [400, 1, 350],
-                [450, 0.75, 360],
-                [500, 0.5, 400],
-                [520, 0.1, 900]
+                [10, 10, 5],
+                [0, 10, 20],
+                [10, 10, 5],
+                [0, 10, 20],
+                [10, 10, 5],
+                [0, 10, 20],
+                [10, 10, 5],
+                [0, 10, 20],
+                [10, 10, 5],
+                [0, 10, 20],
             ]
         else:
             self.charging_curve = charging_curve
@@ -449,7 +464,7 @@ class PowerSupply:
 
 
 class Multiplexer:
-    def __init__(self, port='COM12', baudrate=115200):
+    def __init__(self, port='COM7', baudrate=115200):
         """
         Initialize the multiplexer serial connection.
         """
@@ -902,12 +917,12 @@ class TestController:
 
         # Initialize the power supply
         self.power_supply = PowerSupply(
-            port="COM8", baudrate=115200, timeout=0.5)
+            port="COM6", baudrate=115200, timeout=0.1)
         self.power_supply.blocking_connect()
         self.power_supply.startup()
 
         # Initialize the multiplexer
-        self.multiplexer = Multiplexer(port='COM14')
+        self.multiplexer = Multiplexer(port='COM7')
 
         self.run_self_test()
 
@@ -1341,10 +1356,10 @@ class TestController:
             # self.voltage_reading = (
             #     self.device_names[self.current_device_idx], elapsed, ps_voltage)
 
-            # # Print status
-            # print(f"[{datetime.datetime.now()}] {self.device_names[self.current_device_idx]} | "
-            #       f"{elapsed:.1f}s | Current: {float(current_value):.4g} | "
-            #       f"PS Voltage: {ps_voltage:.1f} | Sensor: {sensor_data_str}")
+            # Print status
+            print(f"[{datetime.datetime.now()}] {self.device_names[self.current_device_idx]} | "
+                  f"{elapsed:.1f}s | Current: {float(current_value):.4g} | "
+                  f"PS Voltage: {ps_voltage:.1f} | Sensor: {sensor_data_str}")
 
             self.current_reading = (
                 self.logger.get_current_device_name(), elapsed, float(current_value))
