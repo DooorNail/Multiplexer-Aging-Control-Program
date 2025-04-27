@@ -1354,6 +1354,7 @@ class TestController:
 
         if (time_now - self.previous_ps_read).total_seconds() > self.ps_read_interval:
             ps_voltage = self.power_supply.read_voltage()
+            self.previous_ps_read = time_now
         else:
             ps_voltage = ""
         
