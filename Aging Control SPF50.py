@@ -524,8 +524,10 @@ class DataLogger:
         self.data_files = {}
         self.active_device = None
 
+        sub_dir = "Aging Data\\"
+
         # Create a file for each device
-        base_filename = datetime.datetime.now().strftime("%y%m%d") + "_" + test_id
+        base_filename = sub_dir + datetime.datetime.now().strftime("%y%m%d") + "_" + test_id
         for i, name in enumerate(device_names):
             if name:  # Only create files for named devices
                 filename = f"{base_filename}_{name}.csv"
