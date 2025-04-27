@@ -246,12 +246,6 @@ class PowerSupply:
                 [25, 10, 15],
                 [30, 10, 15],
                 [35, 10, 15]
-                [10, 10, 15],
-                [15, 10, 15],
-                [20, 10, 15],
-                [25, 10, 15],
-                [30, 10, 15],
-                [35, 10, 15]
             ]
         else:
             self.charging_curve = charging_curve
@@ -903,7 +897,8 @@ class TestController:
         """
         self.stop_event = stop_event
         
-        self.previous_ps_read = datetime.datetime.now()
+        self.previous_ps_read_time = datetime.datetime.now()
+        self.previous_ps_voltage = 0
         self.ps_read_interval = 2 #time between reads in seconds
 
         # Initialize the temperature/humidity sensor
@@ -1352,11 +1347,12 @@ class TestController:
         
         time_now = datetime.datetime.now()
 
-        if (time_now - self.previous_ps_read).total_seconds() > self.ps_read_interval:
+        if (time_now - self.previous_ps_read_time).total_seconds() > self.ps_read_interval:
             ps_voltage = self.power_supply.read_voltage()
-            self.previous_ps_read = time_now
+            self.previous_ps_read_time = time_now
+            self.previous_ps_voltage = ps_voltage
         else:
-            ps_voltage = ""
+            ps_voltage = self.previous_ps_voltage
         
         # Log data to file
         log_line = f"{time_now},{current_value},{sensor_data_str},{ps_voltage}\n"
