@@ -1,4 +1,4 @@
-# 1000010
+# 1000011
 
 """
 ==========  TODO  ==========
@@ -903,10 +903,6 @@ class TestController:
         Initialize all devices and the data logger.
         """
         self.stop_event = stop_event
-        
-        self.previous_ps_read_time = datetime.datetime.now()
-        self.previous_ps_voltage = 0
-        self.ps_read_interval = 2 #time between reads in seconds
 
         # Initialize the temperature/humidity sensor
         # self.sensor = TemperatureHumiditySensor(port='COM5', baudrate=4800)
@@ -1353,14 +1349,8 @@ class TestController:
 
         
         time_now = datetime.datetime.now()
+        ps_voltage = self.power_supply.read_voltage()
 
-        if (time_now - self.previous_ps_read_time).total_seconds() > self.ps_read_interval:
-            ps_voltage = self.power_supply.read_voltage()
-            self.previous_ps_read_time = time_now
-            self.previous_ps_voltage = ps_voltage
-        else:
-            ps_voltage = self.previous_ps_voltage
-        
         # Log data to file
         log_line = f"{time_now},{current_value},{sensor_data_str},{ps_voltage}\n"
         self.logger.log_data(log_line)
