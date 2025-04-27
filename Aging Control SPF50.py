@@ -1,4 +1,4 @@
-# 1000005
+# 1000007
 
 """
 ==========  TODO  ==========
@@ -240,16 +240,12 @@ class PowerSupply:
             # ]
             self.charging_curve = [
                 [0, 0, 0],
-                [10, 10, 5],
-                [0, 10, 20],
-                [10, 10, 5],
-                [0, 10, 20],
-                [10, 10, 5],
-                [0, 10, 20],
-                [10, 10, 5],
-                [0, 10, 20],
-                [10, 10, 5],
-                [0, 10, 20],
+                [10, 10, 15],
+                [15, 10, 15],
+                [20, 10, 15],
+                [25, 10, 15],
+                [30, 10, 15],
+                [35, 10, 15]
             ]
         else:
             self.charging_curve = charging_curve
@@ -901,7 +897,7 @@ class TestController:
         """
         self.stop_event = stop_event
         
-        self.previous_ps_read = 0
+        self.previous_ps_read = datetime.datetime.now()
         self.ps_read_interval = 2 #time between reads in seconds
 
         # Initialize the temperature/humidity sensor
