@@ -1,4 +1,4 @@
-#1000001
+# 1000002
 
 """
 ==========  TODO  ==========
@@ -37,6 +37,7 @@ import logging
 import csv
 import threading
 import queue
+import os
 import numpy as np
 from colorama import init, Fore, Style
 
@@ -70,7 +71,7 @@ class Multimeter:
             # self.resource.write(':ZERO:AUTO OFF')
             self.resource.write(':SAMPle:COUNt %d' % 1)
             # self.resource.write(':CURRent:DC:APER %s' % 'MAX')
-            self.resource.write(':CURRent:DC:APER 0.5')
+            self.resource.write(':CURRent:DC:APER 0.2')
             self.resource.write(':SAMPle:SOURce %s' % 'IMMediate')
             self.resource.write(':TRIGger:SOURce %s' % 'IMMediate')
             self.resource.write(':TRIG:COUN INF')
@@ -541,8 +542,11 @@ class DataLogger:
 
         sub_dir = "Aging Data\\"
 
+        os.makedirs(sub_dir, exist_ok=True)
+
         # Create a file for each device
-        base_filename = sub_dir + datetime.datetime.now().strftime("%y%m%d") + "_" + test_id
+        base_filename = sub_dir + datetime.datetime.now().strftime("%y%m%d") + \
+            "_" + test_id
         for i, name in enumerate(device_names):
             if name:  # Only create files for named devices
                 filename = f"{base_filename}_{name}.csv"
@@ -942,8 +946,7 @@ class TestController:
         if not self.connected_devices:
             raise Exception("No devices specified for testing.")
 
-
-        print(Fore.YELLOW + "\n[ Enter Test Group ]\n" + 
+        print(Fore.YELLOW + "\n[ Enter Test Group ]\n" +
               Fore.LIGHTBLACK_EX + "data will be put in this folder" + Style.RESET_ALL)
         self.logger = DataLogger(
             test_id=input("\n>>> "),
