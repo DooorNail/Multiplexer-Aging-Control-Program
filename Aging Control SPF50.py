@@ -20,17 +20,8 @@ Breakdown or aging?
     - threshold current
     + increase multimeter read rate?
     
-Self test:
-    - Disarm
-    - Set power supply to {X} Volts and turn on
-    - check that current flowing is close to current limit
-    - Arm 
-    - check that powersupply voltage is close to the voltage setpoint
-    - check that the current flowing is below threshold (close to zero)
-    - turn on the discharge resistors
-    - check that current flowing is close to the current limit
-    - turn off the discharge resistors
-    
+Automatic port selection
+
 
 """
 
@@ -934,8 +925,11 @@ class TestController:
         if not self.connected_devices:
             raise Exception("No devices specified for testing.")
 
+
+        print(Fore.YELLOW + "\n[ Enter Test Group ]\n" + 
+              Fore.LIGHTBLACK_EX + "data will be put in this folder" + Style.RESET_ALL)
         self.logger = DataLogger(
-            test_id=input("Enter test ID:\n>>> "),
+            test_id=input("\n>>> "),
             device_names=self.device_names
         )
 
@@ -968,7 +962,7 @@ class TestController:
               + "=" * 50 + "\n" + Style.RESET_ALL)
 
         print(
-            f"{Fore.LIGHTBLACK_EX}  - estimated runtime: roughly {len(self.connected_devices) * charging_curve_duration / 60} minutes")
+            f"{Fore.LIGHTBLACK_EX}estimated runtime: roughly {len(self.connected_devices) * charging_curve_duration / 60} minutes")
 
         self.current_multimeter.configure()
         self.current_multimeter.initiate()
@@ -1006,7 +1000,7 @@ class TestController:
         # Test Phase 1: Disarmed state verification
         # -------------------------------------------------------------------
         print(Fore.YELLOW + "\n[ Disarmed State Test ]" + Style.RESET_ALL)
-        print(Fore.LIGHTBLACK_EX + "  - System disarmed, power supply on")
+        print(Fore.LIGHTBLACK_EX + "System disarmed, power supply on")
 
         for attempt in range(max_retries):
             try:
@@ -1038,7 +1032,7 @@ class TestController:
         # Test Phase 2: Armed state verification
         # -------------------------------------------------------------------
         print(Fore.YELLOW + "\n[ Armed State Test ]" + Style.RESET_ALL)
-        print(Fore.LIGHTBLACK_EX + "  - Arming multiplexer")
+        print(Fore.LIGHTBLACK_EX + "Arming multiplexer")
 
         for attempt in range(max_retries):
             try:
@@ -1087,7 +1081,7 @@ class TestController:
         # Test Phase 3: Discharge circuit verification
         # -------------------------------------------------------------------
         print(Fore.YELLOW + "\n[ Discharge Circuit Test ]" + Style.RESET_ALL)
-        print(Fore.LIGHTBLACK_EX + "  - Activating discharge resistors")
+        print(Fore.LIGHTBLACK_EX + "Activating discharge resistors")
 
         for attempt in range(max_retries):
             try:
@@ -1237,7 +1231,7 @@ class TestController:
         # Header
         print(Fore.CYAN + "\n"*5 + "=" * 50 + "\n"
               + " INDENTIFY POPULATED CHANNELS ".center(50, "~") + "\n"
-              + "=" * 50 + Style.RESET_ALL)
+              + "=" * 50 + "\n" + Style.RESET_ALL)
 
         self.power_supply.voltage_ramp_rate_set(100)
         self.power_supply.voltage_setpoint_set(
@@ -1271,11 +1265,11 @@ class TestController:
                 current = float(current)
                 if current < populated_threshold:
                     print(
-                        f"{Fore.RED}Channel {i + 1}: No device connected, low current  || ({(current*1e6):.2g}uA)")
+                        f"{Fore.RED}Channel {i + 1}: No device found      || ({(current*1e6):.2g}uA)")
                 else:
                     valid_channels.append(i)
                     print(
-                        f"{Fore.GREEN}Channel {i + 1}: OK                                || ({(current*1e6):.2g}uA)")
+                        f"{Fore.GREEN}Channel {i + 1}: Device present       || ({(current*1e6):.2g}uA)")
             except ValueError:
                 print(f"{Fore.RED}Channel {i + 1}: Invalid current reading")
 
