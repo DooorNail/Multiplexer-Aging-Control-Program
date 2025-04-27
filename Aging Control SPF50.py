@@ -1,4 +1,4 @@
-# 1000009
+# 1000010
 
 """
 ==========  TODO  ==========
@@ -391,11 +391,16 @@ class PowerSupply:
         Query and return the voltage reading (V).
         """
         try:
+            print(f"[PS READ] {datetime.datetime.now()}")
             self.serial.reset_input_buffer()
+            print(f"[PS READ] {datetime.datetime.now()}")
             self.send_command(">M0?")
+            print(f"[PS READ] {datetime.datetime.now()}")
             response = self.serial_read_line().replace("M0:", "")
+            print(f"[PS READ] {datetime.datetime.now()}")
             if "E0" in response:
                 response = self.serial_read_line().replace("M0:", "")
+                print(f"[PS READ] {datetime.datetime.now()}")
             return float(response)
         except Exception as e:
             logging.error("Error reading voltage: %s", e)
