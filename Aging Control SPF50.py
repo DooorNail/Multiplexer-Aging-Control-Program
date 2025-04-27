@@ -1,4 +1,4 @@
-# 1000003
+# 1000004
 
 """
 ==========  TODO  ==========
@@ -540,13 +540,13 @@ class DataLogger:
         self.data_files = {}
         self.active_device = None
 
-        sub_dir = "Aging Data\\"
+        sub_dir = os.path.join("Aging Data", test_id)
 
         os.makedirs(sub_dir, exist_ok=True)
 
         # Create a file for each device
-        base_filename = sub_dir + datetime.datetime.now().strftime("%y%m%d") + \
-            "_" + test_id
+        base_filename = os.path.join(sub_dir,
+                                     (datetime.datetime.now().strftime("%y%m%d") + "_" + test_id))
         for i, name in enumerate(device_names):
             if name:  # Only create files for named devices
                 filename = f"{base_filename}_{name}.csv"
@@ -1039,7 +1039,7 @@ class TestController:
                     raise Exception(
                         f"Current out of range (expected ~{self.power_supply.current_limit_value*1e3:.1f}mA ± {current_tolerance*100:.0f}%)")
 
-                print(Fore.GREEN + "  ✓ Disarmed current OK" + Style.RESET_ALL)
+                print(Fore.GREEN + "  Disarmed current OK" + Style.RESET_ALL)
                 break
 
             except Exception as e:
@@ -1087,7 +1087,7 @@ class TestController:
                         f"Current too high (expected <{idle_current_threshold*1e6:.1f}uA)")
 
                 print(
-                    Fore.GREEN + "  ✓ Armed state OK (voltage and current)" + Style.RESET_ALL)
+                    Fore.GREEN + "  Armed state OK (voltage and current)" + Style.RESET_ALL)
                 break
 
             except Exception as e:
@@ -1124,7 +1124,7 @@ class TestController:
                     raise Exception(
                         f"Current out of range (expected ~{self.power_supply.current_limit_value*1e3:.1f}mA ± {current_tolerance*100:.0f}%)")
 
-                print(Fore.GREEN + "  ✓ Discharge circuit OK" + Style.RESET_ALL)
+                print(Fore.GREEN + "  Discharge circuit OK" + Style.RESET_ALL)
                 break
 
             except Exception as e:
@@ -1360,8 +1360,6 @@ class TestController:
             #     self.device_names[self.current_device_idx], elapsed, float(current_value))
             # self.voltage_reading = (
             #     self.device_names[self.current_device_idx], elapsed, ps_voltage)
-
-
 
             self.current_reading = (
                 self.logger.get_current_device_name(), elapsed, float(current_value))
