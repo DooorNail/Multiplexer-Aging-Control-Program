@@ -386,6 +386,8 @@ class PowerSupply:
             logging.error("Error reading current: %s", e)
             return None
 
+
+
     def read_voltage(self):
         """
         Query and return the voltage reading (V).
@@ -394,7 +396,7 @@ class PowerSupply:
             print(f"[PS READ] {datetime.datetime.now()}")
             self.serial.reset_input_buffer()
             print(f"[PS READ] {datetime.datetime.now()}")
-            self.send_command(">M0?")
+            self.send_no_check(">M0?")
             print(f"[PS READ] {datetime.datetime.now()}")
             response = self.serial_read_line().replace("M0:", "")
             print(f"[PS READ] {datetime.datetime.now()}")
