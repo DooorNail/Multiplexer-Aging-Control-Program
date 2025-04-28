@@ -1,4 +1,4 @@
-# 1000014
+# 1000015
 
 """
 ==========  TODO  ==========
@@ -1359,6 +1359,7 @@ class TestController:
 
     def test_loop(self):
         """Do one measurement cycle for the current device."""
+        print(Fore.LIGHTBLACK_EX + self.current_device_idx)
         if self.current_device_idx is None:
             self.start_next_device_test()
         elif self.current_device_idx == 999:  # group hold
@@ -1452,7 +1453,7 @@ class TestController:
 
     def start_next_device_test(self):
         """Start testing the next device."""
-        if self.current_device_idx == None:
+        if self.current_device_idx is None:
             self.current_device_idx = 0
         else:
             self.current_device_idx += 1
@@ -1478,6 +1479,7 @@ class TestController:
                     self.logger.set_active_device(self.current_device_idx)
                 return
             
+        print("?")
 
         self.logger.set_active_device(self.current_device_idx)
 
