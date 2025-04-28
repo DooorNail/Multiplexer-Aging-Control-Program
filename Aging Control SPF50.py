@@ -1536,10 +1536,13 @@ class Overwatch:
         self.controller = controller
 
     def data_in(self, measurement_data):
-        device_name, time_val, current_val = measurement_data["current"]
-        if self.controller.breakdown_test:
-            if current_val > 3e-3:
-                self.controller.interrupt_test()
+        try:
+            device_name, time_val, current_val = measurement_data["current"]
+            if self.controller.breakdown_test:
+                if current_val > 3e-3:
+                    self.controller.interrupt_test()
+        except Exception as e:
+            logging.error("Error during overwatch: %s", e)
                 
 
 class CSVTestController:
