@@ -3,6 +3,8 @@
 """
 ==========  TODO  ==========
 
+Implement the file naming based on test_type in DataLogger, update class declaration
+Implement overwatch for aging
 
 
 Breakdown or aging?
@@ -25,6 +27,7 @@ Breakdown or aging?
 Automatic port selection
 
 
+
 """
 
 import datetime
@@ -41,7 +44,7 @@ import os
 import numpy as np
 from colorama import init, Fore, Style
 
-# Initialize colorama (automatically handles Windows/macOS/Linux)
+# Initialize colorama
 init(autoreset=True)
 
 # Configure logging
@@ -226,27 +229,27 @@ class PowerSupply:
             #     # [150, 5, 40],
             #     # [300, 2, 120]
             # ]
-            # self.charging_curve = [
-            #     [0, 0, 0],
-            #     [100, 5, 140],
-            #     [200, 2, 140],
-            #     [250, 2, 240],
-            #     [300, 2, 240],
-            #     [350, 1, 290],
-            #     [400, 1, 350],
-            #     [450, 0.75, 360],
-            #     [500, 0.5, 400],
-            #     [520, 0.1, 900]
-            # ]
             self.charging_curve = [
                 [0, 0, 0],
-                [10, 10, 15],
-                [15, 10, 15],
-                [20, 10, 15],
-                [25, 10, 15],
-                [30, 10, 15],
-                [35, 10, 15]
+                [100, 5, 140],
+                [200, 2, 140],
+                [250, 2, 240],
+                [300, 2, 240],
+                [350, 1, 290],
+                [400, 1, 350],
+                [450, 0.75, 360],
+                [500, 0.5, 400],
+                [520, 0.1, 900]
             ]
+            # self.charging_curve = [
+            #     [0, 0, 0],
+            #     [10, 10, 15],
+            #     [15, 10, 15],
+            #     [20, 10, 15],
+            #     [25, 10, 15],
+            #     [30, 10, 15],
+            #     [35, 10, 15]
+            # ]
         else:
             self.charging_curve = charging_curve
 
@@ -385,8 +388,6 @@ class PowerSupply:
         except Exception as e:
             logging.error("Error reading current: %s", e)
             return None
-
-
 
     def read_voltage(self):
         """
@@ -533,7 +534,7 @@ class Multiplexer:
 
 
 class DataLogger:
-    def __init__(self, test_id, device_names, minimum_measurement_count=60):
+    def __init__(self, test_id, test_type, device_names, minimum_measurement_count=60):
         """
         Initialize the logger for multiple devices.
         device_names: list of names for each device position (empty string means unused)
@@ -578,7 +579,7 @@ class DataLogger:
     def write_header(self, device_idx):
         """Write header to a device's data file."""
         if device_idx in self.data_files:
-            header = f"MeasTime,{self.data_files[device_idx]['name']},Temperature,Humidity,Voltage\n"
+            header = f"Time,Current,Temperature,Humidity,Voltage\n"
             try:
                 with open(self.data_files[device_idx]['filename'], "a") as f:
                     f.write(header)
@@ -904,6 +905,19 @@ class TestController:
         """
         self.stop_event = stop_event
 
+        self.current_device_idx = None
+
+        self.measurement_interval = 0.05
+
+        self.populated_threshold = 1e-7  # Minimum current for device verification
+
+        self.hold_voltage = self.power_supply.charging_curve[-1][0]
+        self.hold_current = 0.5e-3
+        self.hold_duration = 12 * 60 * 60  # time to hold the group at voltage in s
+
+        self.breakdown_test = False
+        self.end_test = False
+
         # Initialize the temperature/humidity sensor
         # self.sensor = TemperatureHumiditySensor(port='COM5', baudrate=4800)
 
@@ -965,16 +979,6 @@ class TestController:
         # Record test start time.
         self.test_start_time = datetime.datetime.now()
 
-        self.current_device_idx = None
-
-        self.measurement_interval = 0.05
-
-        self.populated_threshold = 1e-7  # Minimum current for device verification
-
-        self.hold_voltage = self.power_supply.charging_curve[-1][0]
-        self.hold_current = 0.5e-3
-        self.hold_duration = 12 * 60 * 60  # time to hold the group at voltage in s
-
         charging_curve_duration = 0
         for seg in self.power_supply.charging_curve:
             final_voltage, ramp_rate, seg_total_time = seg
@@ -989,6 +993,30 @@ class TestController:
 
         self.current_multimeter.configure()
         self.current_multimeter.initiate()
+
+    def select_program(self):
+        print(Fore.CYAN + "\n"*5 + "=" * 50 + "\n"
+              + " SELECT PROGRAM ".center(50, "~") + "\n"
+              + "=" * 50 + Style.RESET_ALL)
+        print(f"{Fore.LIGHTBLACK_EX}type 'breakdown' or [ENTER] for aging\n")
+        response = input(">>> ")
+
+        if response == "breakdown":
+            self.breakdown_test = True
+            self.power_supply.current_limit_set(7e-3)
+            self.power_supply.charging_curve = [
+                [0, 0, 0],
+                [850, 2, 500]
+            ]
+            #multimeter poll rate
+            print(Fore.LIGHTMAGENTA_EX + "\n"*1 + "=" * 50 + "\n"
+              + " BREAKDOWN SELECTED ".center(50, "~") + "\n"
+              + "=" * 50 + Style.RESET_ALL)
+        else:
+            print(Fore.LIGHTBLUE_EX + "\n"*1 + "=" * 50 + "\n"
+              + " AGING SELECTED ".center(50, "~") + "\n"
+              + "=" * 50 + Style.RESET_ALL)
+            
 
     def run_self_test(self):
         """Run comprehensive self-test of all system components."""
@@ -1308,17 +1336,21 @@ class TestController:
 
         return bool(self.connected_devices)
 
+    def interrupt_test(self):
+        self.end_test = True
+
     def test_loop(self):
         """Do one measurement cycle for the current device."""
         if self.current_device_idx is None:
             self.start_next_device_test()
-        elif self.current_device_idx == 999:
+        elif self.current_device_idx == 999:  # group hold
             elapsed = (datetime.datetime.now() -
                        self.test_start_time).total_seconds()
             if elapsed > self.hold_duration:
                 self.power_supply.off()
                 self.multiplexer.discharge(1)
-                time.sleep(5)
+                time.sleep(1)
+                self.multiplexer.disarm()
                 print("Hold complete, ending measurements")
                 self.logger.push_data_to_file(999)
                 self.stop_event.set()
@@ -1326,7 +1358,7 @@ class TestController:
             # run individual ramp
             self.power_supply.run_program()
 
-            if self.power_supply.sequence_complete:
+            if self.power_supply.sequence_complete or self.end_test:
                 self.finish_device_test(self.current_device_idx)
                 self.start_next_device_test()
 
@@ -1347,7 +1379,6 @@ class TestController:
 
         sensor_data_str = ","
 
-        
         time_now = datetime.datetime.now()
         ps_voltage = self.power_supply.read_voltage()
 
@@ -1370,9 +1401,9 @@ class TestController:
                 self.logger.get_current_device_name(), elapsed, ps_voltage)
 
             # Print status
-            print(f"[{time_now}] {self.logger.get_current_device_name()} | "
-                  f"{elapsed:.1f}s | Current: {float(current_value):.4g} | "
-                  f"PS Voltage: {ps_voltage:.1f} | Sensor: {sensor_data_str}")
+            # print(f"[{time_now}] {self.logger.get_current_device_name()} | "
+            #       f"{elapsed:.1f}s | Current: {float(current_value):.4g} | "
+            #       f"PS Voltage: {ps_voltage:.1f} | Sensor: {sensor_data_str}")
 
             return True
         except Exception as e:
@@ -1386,6 +1417,8 @@ class TestController:
 
         # Ramp down voltage
         self.power_supply.voltage_setpoint_set(0)
+
+        self.end_test = False
 
         # Discharge the system
         self.multiplexer.discharge(1)
@@ -1405,7 +1438,7 @@ class TestController:
             self.current_device_idx = 0
         else:
             self.current_device_idx += 1
-            if not self.current_device_idx in self.connected_devices:
+            if not self.current_device_idx in self.connected_devices and not self.breakdown_test:
                 print(Fore.CYAN + "\n"*5 + "=" * 50 + "\n"
                       + " GROUP HOLD ".center(50, "~") + "\n"
                       + "=" * 50 + "\n" + Style.RESET_ALL)
@@ -1417,6 +1450,14 @@ class TestController:
                 self.current_device_idx = 999
                 self.test_start_time = datetime.datetime.now()
                 self.logger.set_active_device(self.current_device_idx)
+                return
+            else:
+                self.power_supply.off()
+                self.multiplexer.discharge(1)
+                time.sleep(1)
+                self.multiplexer.disarm()
+                print(f"{Fore.GREEN}All devices completed")
+                self.stop_event.set()
                 return
 
         self.logger.set_active_device(self.current_device_idx)
@@ -1471,6 +1512,16 @@ class TestController:
             logging.error("Error logging buffer to file: %s", e)
         print("Cleanup complete. Program terminated.")
 
+class Overwatch:
+    def __init__(self, controller):
+        self.controller = controller
+
+    def data_in(self, measurement_data):
+        device_name, time_val, current_val = measurement_data["current"]
+        if self.controller.breakdown_test:
+            if current_val > 3e-3:
+                self.controller.interrupt_test()
+                
 
 class CSVTestController:
     """
@@ -1584,6 +1635,7 @@ def main():
         controller = CSVTestController(
             csv_filename="250226_TP01,07_Ageing.csv")
     gui = DataGUI(controller)
+    overwatch = Overwatch(controller)
 
     # Measurement thread function.
 
@@ -1600,6 +1652,7 @@ def main():
                         'voltage': controller.voltage_reading
                     }
                     measurement_queue.put(measurement_data)
+                    overwatch.data_in()
             except Exception as e:
                 logging.error("Error in measurement thread: %s", e)
             # Sleep briefly to avoid overwhelming the instruments.
