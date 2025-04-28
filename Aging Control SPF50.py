@@ -972,9 +972,9 @@ class TestController:
 
         print(Fore.YELLOW + "\n[ Enter Test Group ]\n" +
               Fore.LIGHTBLACK_EX + "data will be put in this folder" + Style.RESET_ALL)
-        
+
         if self.breakdown_test:
-            test_type="breakdown",
+            test_type = "breakdown",
             self.logger = DataLogger(
                 test_id=input("\n>>> "),
                 test_type="breakdown",
@@ -986,7 +986,6 @@ class TestController:
                 test_type="aging",
                 device_names=self.device_names
             )
-            
 
         # Data lists for GUI plotting:
         # For multimeter current: each tuple is (device_name, elapsed_time, dmm_current)
@@ -1026,15 +1025,14 @@ class TestController:
                 [0, 0, 0],
                 [850, 2, 500]
             ]
-            #multimeter poll rate
+            # multimeter poll rate
             print(Fore.LIGHTMAGENTA_EX + "\n"*1 + "=" * 50 + "\n"
-              + " BREAKDOWN SELECTED ".center(50, "~") + "\n"
-              + "=" * 50 + Style.RESET_ALL)
+                  + " BREAKDOWN SELECTED ".center(50, "~") + "\n"
+                  + "=" * 50 + Style.RESET_ALL)
         else:
             print(Fore.LIGHTBLUE_EX + "\n"*1 + "=" * 50 + "\n"
-              + " AGING SELECTED ".center(50, "~") + "\n"
-              + "=" * 50 + Style.RESET_ALL)
-            
+                  + " AGING SELECTED ".center(50, "~") + "\n"
+                  + "=" * 50 + Style.RESET_ALL)
 
     def run_self_test(self):
         """Run comprehensive self-test of all system components."""
@@ -1359,7 +1357,6 @@ class TestController:
 
     def test_loop(self):
         """Do one measurement cycle for the current device."""
-        print(Fore.LIGHTBLACK_EX + self.current_device_idx)
         if self.current_device_idx is None:
             self.start_next_device_test()
         elif self.current_device_idx == 999:  # group hold
@@ -1454,10 +1451,11 @@ class TestController:
     def start_next_device_test(self):
         """Start testing the next device."""
         if self.current_device_idx is None:
-            self.current_device_idx = 0
+            self.current_device_idx = self.connected_devices[0]
         else:
-            self.current_device_idx += 1
-            if not self.current_device_idx in self.connected_devices:
+            current_list_index = self.connected_devices.index(
+                self.current_device_idx)
+            if current_list_index+1 >= len(self.connected_devices):
                 if self.breakdown_test:
                     self.power_supply.off()
                     self.multiplexer.discharge(1)
@@ -1467,8 +1465,8 @@ class TestController:
                     self.stop_event.set()
                 else:
                     print(Fore.CYAN + "\n"*5 + "=" * 50 + "\n"
-                        + " GROUP HOLD ".center(50, "~") + "\n"
-                        + "=" * 50 + "\n" + Style.RESET_ALL)
+                          + " GROUP HOLD ".center(50, "~") + "\n"
+                          + "=" * 50 + "\n" + Style.RESET_ALL)
                     # print(f"End of tests")  # ---------------
                     self.multiplexer.send_command("WA,255")
                     self.power_supply.voltage_ramp_rate_set(1)
@@ -1478,8 +1476,11 @@ class TestController:
                     self.test_start_time = datetime.datetime.now()
                     self.logger.set_active_device(self.current_device_idx)
                 return
-            
-        print("?")
+            else:
+                self.current_device_idx = self.connected_devices[current_list_index+1]
+            # if not self.current_device_idx in self.connected_devices:
+
+        # print("?")
 
         self.logger.set_active_device(self.current_device_idx)
 
@@ -1533,6 +1534,7 @@ class TestController:
             logging.error("Error logging buffer to file: %s", e)
         print("Cleanup complete. Program terminated.")
 
+
 class Overwatch:
     def __init__(self, controller):
         self.controller = controller
@@ -1545,7 +1547,7 @@ class Overwatch:
                     self.controller.interrupt_test()
         except Exception as e:
             logging.error("Error during overwatch: %s", e)
-                
+
 
 class CSVTestController:
     """
