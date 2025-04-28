@@ -394,16 +394,16 @@ class PowerSupply:
         Query and return the voltage reading (V).
         """
         try:
-            print(f"[PS READ] {datetime.datetime.now()}")
+            # print(f"[PS READ] {datetime.datetime.now()}")
             self.serial.reset_input_buffer()
-            print(f"[PS READ] {datetime.datetime.now()}")
+            # print(f"[PS READ] {datetime.datetime.now()}")
             self.send_no_check(">M0?")
-            print(f"[PS READ] {datetime.datetime.now()}")
+            # print(f"[PS READ] {datetime.datetime.now()}")
             response = self.serial_read_line().replace("M0:", "")
-            print(f"[PS READ] {datetime.datetime.now()}")
+            # print(f"[PS READ] {datetime.datetime.now()}")
             if "E0" in response:
                 response = self.serial_read_line().replace("M0:", "")
-                print(f"[PS READ] {datetime.datetime.now()}")
+                # print(f"[PS READ] {datetime.datetime.now()}")
             return float(response)
         except Exception as e:
             logging.error("Error reading voltage: %s", e)
@@ -914,10 +914,6 @@ class TestController:
 
         self.populated_threshold = 1e-7  # Minimum current for device verification
 
-        self.hold_voltage = self.power_supply.charging_curve[-1][0]
-        self.hold_current = 0.5e-3
-        self.hold_duration = 12 * 60 * 60  # time to hold the group at voltage in s
-
         self.breakdown_test = False
         self.end_test = False
 
@@ -947,6 +943,10 @@ class TestController:
 
         # Initialize the multiplexer
         self.multiplexer = Multiplexer(port='COM7')
+
+        self.hold_voltage = self.power_supply.charging_curve[-1][0]
+        self.hold_current = 0.5e-3
+        self.hold_duration = 12 * 60 * 60  # time to hold the group at voltage in s
 
         self.run_self_test()
 
@@ -1011,7 +1011,7 @@ class TestController:
         print(f"{Fore.LIGHTBLACK_EX}type 'breakdown' or [ENTER] for aging\n")
         response = input(">>> ")
 
-        if response == "breakdown":
+        if response.lower() == "breakdown":
             self.breakdown_test = True
             self.power_supply.current_limit_set(7e-3)
             self.power_supply.charging_curve = [
@@ -1662,7 +1662,7 @@ def main():
                         'voltage': controller.voltage_reading
                     }
                     measurement_queue.put(measurement_data)
-                    overwatch.data_in()
+                    overwatch.data_in(measurement_data)
             except Exception as e:
                 logging.error("Error in measurement thread: %s", e)
             # Sleep briefly to avoid overwhelming the instruments.
