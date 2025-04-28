@@ -1,4 +1,4 @@
-# 1000012
+# 1000013
 
 """
 ==========  TODO  ==========
@@ -1448,27 +1448,28 @@ class TestController:
             self.current_device_idx = 0
         else:
             self.current_device_idx += 1
-            if not self.current_device_idx in self.connected_devices and not self.breakdown_test:
-                print(Fore.CYAN + "\n"*5 + "=" * 50 + "\n"
-                      + " GROUP HOLD ".center(50, "~") + "\n"
-                      + "=" * 50 + "\n" + Style.RESET_ALL)
-                # print(f"End of tests")  # ---------------
-                self.multiplexer.send_command("WA,255")
-                self.power_supply.voltage_ramp_rate_set(1)
-                self.power_supply.voltage_setpoint_set(self.hold_voltage)
-                self.power_supply.current_limit_set(self.hold_current)
-                self.current_device_idx = 999
-                self.test_start_time = datetime.datetime.now()
-                self.logger.set_active_device(self.current_device_idx)
+            if not self.current_device_idx in self.connected_devices:
+                if self.breakdown_test:
+                    self.power_supply.off()
+                    self.multiplexer.discharge(1)
+                    time.sleep(1)
+                    self.multiplexer.disarm()
+                    print(f"{Fore.GREEN}All devices completed")
+                    self.stop_event.set()
+                else:
+                    print(Fore.CYAN + "\n"*5 + "=" * 50 + "\n"
+                        + " GROUP HOLD ".center(50, "~") + "\n"
+                        + "=" * 50 + "\n" + Style.RESET_ALL)
+                    # print(f"End of tests")  # ---------------
+                    self.multiplexer.send_command("WA,255")
+                    self.power_supply.voltage_ramp_rate_set(1)
+                    self.power_supply.voltage_setpoint_set(self.hold_voltage)
+                    self.power_supply.current_limit_set(self.hold_current)
+                    self.current_device_idx = 999
+                    self.test_start_time = datetime.datetime.now()
+                    self.logger.set_active_device(self.current_device_idx)
                 return
-            else:
-                self.power_supply.off()
-                self.multiplexer.discharge(1)
-                time.sleep(1)
-                self.multiplexer.disarm()
-                print(f"{Fore.GREEN}All devices completed")
-                self.stop_event.set()
-                return
+            
 
         self.logger.set_active_device(self.current_device_idx)
 
