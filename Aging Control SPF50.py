@@ -1,4 +1,4 @@
-# 1000013
+# 1000014
 
 """
 ==========  TODO  ==========
@@ -544,6 +544,8 @@ class DataLogger:
         self.data_files = {}
         self.active_device = None
 
+        print(test_type)
+
         if test_type == "breakdown":
             sub_dir = os.path.join("Breakdown Data", test_id)
         else:
@@ -973,12 +975,18 @@ class TestController:
         
         if self.breakdown_test:
             test_type="breakdown",
-
-        self.logger = DataLogger(
-            test_id=input("\n>>> "),
-            test_type=test_type,
-            device_names=self.device_names
-        )
+            self.logger = DataLogger(
+                test_id=input("\n>>> "),
+                test_type="breakdown",
+                device_names=self.device_names
+            )
+        else:
+            self.logger = DataLogger(
+                test_id=input("\n>>> "),
+                test_type="aging",
+                device_names=self.device_names
+            )
+            
 
         # Data lists for GUI plotting:
         # For multimeter current: each tuple is (device_name, elapsed_time, dmm_current)
