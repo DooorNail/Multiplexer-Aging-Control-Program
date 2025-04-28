@@ -1,4 +1,4 @@
-# 1000011
+# 1000012
 
 """
 ==========  TODO  ==========
@@ -544,7 +544,10 @@ class DataLogger:
         self.data_files = {}
         self.active_device = None
 
-        sub_dir = os.path.join("Aging Data", test_id)
+        if test_type == "breakdown":
+            sub_dir = os.path.join("Breakdown Data", test_id)
+        else:
+            sub_dir = os.path.join("Aging Data", test_id)
 
         os.makedirs(sub_dir, exist_ok=True)
 
@@ -949,6 +952,8 @@ class TestController:
 
         self.indentify_populated_channels()
 
+        self.select_program()
+
         if not self.connected_devices:
             raise Exception("No devices connected to test.")
 
@@ -965,8 +970,13 @@ class TestController:
 
         print(Fore.YELLOW + "\n[ Enter Test Group ]\n" +
               Fore.LIGHTBLACK_EX + "data will be put in this folder" + Style.RESET_ALL)
+        
+        if self.breakdown_test:
+            test_type="breakdown",
+
         self.logger = DataLogger(
             test_id=input("\n>>> "),
+            test_type=test_type,
             device_names=self.device_names
         )
 
