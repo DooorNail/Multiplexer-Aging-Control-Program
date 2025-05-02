@@ -1,4 +1,4 @@
-# 1000018
+# 1000019
 
 """
 ==========  TODO  ==========
@@ -48,6 +48,8 @@ import queue
 import os
 import numpy as np
 from colorama import init, Fore, Style
+from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT
+from matplotlib.gridspec import GridSpec
 
 # Initialize colorama
 init(autoreset=True)
@@ -835,25 +837,207 @@ class VoltagePlot:
 
         self.ax.legend()
 
+class StabilityPlot:
+    def __init__(self, ax, controller):
+        self.ax = ax
+        self.controller = controller
+        self.line, = ax.plot([], [], 'b-', label='Instability')
+        self.threshold_line = ax.axhline(
+            y=controller.stability_manager.stability_threshold,
+            color='r', linestyle='--', label='Threshold'
+        )
+        self.ax.set_xlabel('Time (min)')
+        self.ax.set_ylabel('Instability Metric')
+        self.ax.set_title('Real-time Stability Monitoring')
+        self.ax.legend()
+        self.ax.grid(True)
+        self.x_data = []
+        self.y_data = []
+        
+    def update(self):
+        manager = self.controller.stability_manager
+        if not manager.measurements:
+            return
+            
+        # Convert timestamps to minutes since start
+        start_time = manager.measurements[0][1]
+        times = [(m[1] - start_time).total_seconds()/60 for m in manager.measurements]
+        
+        # Calculate instability for all points
+        instabilities = []
+        for i in range(len(manager.measurements)):
+            if i >= manager.instability_window:
+                window = manager.measurements[i-manager.instability_window:i]
+                currents = np.array([m[0] for m in window])
+                mean = np.mean(currents)
+                diffs = currents[currents > mean] - mean
+                instabilities.append(np.sum(np.abs(diffs)**manager.power_factor))
+            else:
+                instabilities.append(0)
+        
+        self.line.set_data(times, instabilities)
+        self.ax.relim()
+        self.ax.autoscale_view()
+
+class ControlPanel:
+    def __init__(self, ax, controller):
+        self.ax = ax
+        self.controller = controller
+        ax.axis('off')
+        
+        # Create info text box
+        self.text = ax.text(
+            0.05, 0.95, "",
+            transform=ax.transAxes,
+            fontsize=10,
+            bbox=dict(facecolor='whitesmoke', alpha=0.8)
+        )
+        
+        # Dynamic control indicators
+        self.status_light = ax.add_patch(
+            plt.Circle((0.1, 0.8), 0.03, color='gray')
+        )
+        self.status_text = ax.text(0.15, 0.8, "Dynamic: OFF", fontsize=10)
+        
+    def update(self):
+        manager = self.controller.stability_manager
+        ps = self.controller.power_supply
+        
+        # Dynamic control status
+        is_active = (self.controller.dynamic_voltage_control and 
+                    ps.is_segment_dynamic())
+        
+        self.status_light.set_facecolor('green' if is_active else 'red')
+        self.status_text.set_text(
+            f"Dynamic: {'ACTIVE' if is_active else 'INACTIVE'}")
+        
+        # Compose info text
+        lines = [
+            f"Voltage: {ps.read_voltage():.1f} V / {ps.voltage_setpoint:.1f} V",
+            f"Current: {self.controller.current_reading[2]*1e6:.2f} µA",
+            f"Segment: {ps.prgm_index+1}/{len(ps.charging_curve)}",
+            f"Mode: {'BREAKDOWN' if self.controller.breakdown_test else 'AGING'}",
+            "",
+            "Stability Analysis:",
+            f"  - Window: {manager.analysis_window}s",
+            f"  - Points: {len(manager.measurements)}",
+            f"  - Above mean: {manager.evaluate_stability()['points_above_mean']}",
+            f"  - Consecutive stable: {manager.consecutive_stable}",
+            f"  - Consecutive unstable: {manager.consecutive_unstable}"
+        ]
+        
+        self.text.set_text("\n".join(lines))
+
+class CurrentHistogram:
+    def __init__(self, ax, controller):
+        self.ax = ax
+        self.controller = controller
+        ax.set_title('Current Distribution (60s window)')
+        ax.set_xlabel('Current (µA)')
+        ax.set_ylabel('Frequency')
+        
+    def update(self):
+        manager = self.controller.stability_manager
+        if not manager.measurements:
+            return
+            
+        # Get last minute of data
+        cutoff = datetime.datetime.now() - datetime.timedelta(seconds=60)
+        currents = [m[0]*1e6 for m in manager.measurements 
+                   if m[1] > cutoff]
+        
+        if currents:
+            self.ax.clear()
+            n, bins, patches = self.ax.hist(
+                currents, bins=20, alpha=0.7, color='blue')
+            
+            # Add mean line
+            mean = np.mean(currents)
+            self.ax.axvline(mean, color='red', linestyle='--')
+            self.ax.text(
+                0.95, 0.95, 
+                f"μ = {mean:.2f} µA",
+                transform=self.ax.transAxes,
+                ha='right', va='top',
+                bbox=dict(facecolor='white', alpha=0.7)
+            )
 
 class DataGUI:
     def __init__(self, controller):
         self.controller = controller
-        # Create figure with two subplots.
-        self.fig, axs = plt.subplots(2, 2, figsize=(20, 14))
-        ax1, ax2, ax3, ax4 = axs.ravel()
-
-        # Plot 2: Charging curve and realtime PS voltage.
-        # Precompute the planned charging curve.
-
+        # Create larger figure with 3x3 grid
+        self.fig = plt.figure(figsize=(20, 14))
+        gs = GridSpec(3, 3, figure=self.fig)
+        
+        # Main plots (span multiple columns)
+        self.ax_current_full = self.fig.add_subplot(gs[0, :-1])
+        self.ax_current_recent = self.fig.add_subplot(gs[1, :-1])
+        self.ax_voltage_full = self.fig.add_subplot(gs[2, :-1])
+        
+        # Right-side panels
+        self.ax_control = self.fig.add_subplot(gs[0, -1])
+        self.ax_stability = self.fig.add_subplot(gs[1, -1])
+        self.ax_histogram = self.fig.add_subplot(gs[2, -1])
+        
+        # Initialize all plot components
         computed_curve = self.compute_planned_curve(
             self.controller.power_supply.charging_curve)
-
-        self.voltage_plots = [VoltagePlot(ax3, computed_curve, x_max=computed_curve[0][-1]),
-                              VoltagePlot(ax4, computed_curve, x_scale=300, is_scaled_plot=True)]
-
-        self.current_plots = [CurrentPlot(ax1, self.controller, x_max=computed_curve[0][-1]),
-                              CurrentPlot(ax2, self.controller, x_scale=300, is_scaled_plot=True)]
+        
+        self.current_plots = [
+            CurrentPlot(self.ax_current_full, self.controller, 
+                        x_max=computed_curve[0][-1]),
+            CurrentPlot(self.ax_current_recent, self.controller,
+                        x_scale=300, is_scaled_plot=True)
+        ]
+        
+        self.voltage_plots = [
+            VoltagePlot(self.ax_voltage_full, computed_curve,
+                       x_max=computed_curve[0][-1])
+        ]
+        
+        # Add new enhanced components
+        self.stability_plot = StabilityPlot(self.ax_stability, self.controller)
+        self.control_panel = ControlPanel(self.ax_control, self.controller)
+        self.current_histogram = CurrentHistogram(self.ax_histogram, self.controller)
+        
+        # Add toolbar for interactive controls
+        self.fig.canvas.manager.toolbar = NavigationToolbar2QT(
+            self.fig.canvas, self.fig)
+        
+        # Set window title
+        self.fig.canvas.manager.set_window_title(
+            f"Dielectric Test System - {self.controller.logger.get_current_device_name()}")
+        
+        # Adjust layout
+        plt.tight_layout()
+        self.fig.subplots_adjust(top=0.95, hspace=0.4, wspace=0.3)
+        
+    def update_plots(self):
+        """Update all plot components"""
+        try:
+            time_elapsed = self.controller.current_reading[0]
+            
+            # Update existing plots
+            for v_plot in self.voltage_plots:
+                v_plot.update(
+                    new_reading=self.controller.voltage_reading,
+                    time_elapsed=time_elapsed)
+                    
+            for c_plot in self.current_plots:
+                c_plot.update(
+                    new_reading=self.controller.current_reading,
+                    time_elapsed=time_elapsed)
+            
+            # Update new enhanced components
+            self.stability_plot.update()
+            self.control_panel.update()
+            self.current_histogram.update()
+            
+            self.fig.canvas.draw()
+            self.fig.canvas.flush_events()
+            
+        except Exception as e:
+            logging.error(f"Error updating GUI: {str(e)}")
 
     def compute_planned_curve(self, charging_curve):
         """
@@ -888,26 +1072,7 @@ class DataGUI:
             start_voltage = final_voltage
         return times, voltages
 
-    def update_plots(self):
-        """
-        Update both subplots with the latest data.
-        """
-        try:
-
-            # time_elapsed = (datetime.datetime.now() - self.controller.test_start_time).total_seconds()
-            time_elapsed = self.controller.current_reading[0]
-            for v_plot in self.voltage_plots:
-                v_plot.update(
-                    new_reading=self.controller.voltage_reading, time_elapsed=time_elapsed)
-
-            for c_plot in self.current_plots:
-                c_plot.update(
-                    new_reading=self.controller.current_reading, time_elapsed=time_elapsed)
-
-            self.fig.canvas.draw()
-            self.fig.canvas.flush_events()
-        except Exception as e:
-            logging.error("Error updating : %s", e)
+    
 
 
 class TestController:
@@ -1627,8 +1792,7 @@ class StabilityManager:
 
     def _trim_old_measurements(self, current_time):
         """Remove measurements older than analysis window"""
-        cutoff = current_time - \
-            datetime.timedelta(seconds=self.analysis_window)
+        cutoff = current_time - 60
         self.measurements = [m for m in self.measurements if m[1] > cutoff]
 
     def evaluate_stability(self):
