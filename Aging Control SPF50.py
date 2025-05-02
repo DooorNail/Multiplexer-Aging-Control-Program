@@ -48,11 +48,21 @@ import queue
 import os
 import numpy as np
 from colorama import init, Fore, Style
+
+# PyQt5 imports
+from PyQt5.QtWidgets import (
+    QMainWindow, 
+    QVBoxLayout, 
+    QWidget, 
+    QApplication
+)
+from PyQt5.QtCore import QTimer
+
+# Matplotlib Qt integration
 from matplotlib.backends.backend_qt5agg import (
     FigureCanvasQTAgg as FigureCanvas,
     NavigationToolbar2QT as NavigationToolbar
 )
-from PyQt5.QtWidgets import QMainWindow, QVBoxLayout, QWidget, QApplication
 from matplotlib.gridspec import GridSpec
 
 
@@ -988,11 +998,16 @@ class DataGUI(QMainWindow):
         self.toolbar = NavigationToolbar(self.canvas, self)
         layout.addWidget(self.toolbar)
         
-        # Initialize plots as before
+        # Initialize plots
         self._init_plots()
         
         # Set window title
-        self.setWindowTitle(f"Test System")# - {self.controller.logger.get_current_device_name()}")
+        self.setWindowTitle(f"Test System")
+        
+        # Set up update timer
+        self.timer = QTimer()
+        self.timer.timeout.connect(self.update_plots)
+        self.timer.start(200)  # Update every 200ms (5fps)
         
     def _init_plots(self):
         gs = self.fig.add_gridspec(3, 3)
@@ -1013,26 +1028,28 @@ class DataGUI(QMainWindow):
         
         self.current_plots = [
             CurrentPlot(self.ax_current_full, self.controller, 
-                        x_max=computed_curve[0][-1]),
+                       x_max=computed_curve[0][-1]),
             CurrentPlot(self.ax_current_recent, self.controller,
-                        x_scale=300, is_scaled_plot=True)
+                       x_scale=300, is_scaled_plot=True)
         ]
         
         self.voltage_plots = [
             VoltagePlot(self.ax_voltage_full, computed_curve,
-                       x_max=computed_curve[0][-1])
+                      x_max=computed_curve[0][-1])
         ]
         
-        # Add new enhanced components
+        # Add enhanced components
         self.stability_plot = StabilityPlot(self.ax_stability, self.controller)
         self.control_panel = ControlPanel(self.ax_control, self.controller)
         self.current_histogram = CurrentHistogram(self.ax_histogram, self.controller)
 
-        
     def update_plots(self):
         """Update all plot components"""
         try:
-            time_elapsed = self.controller.current_reading[0]
+            if not hasattr(self.controller, 'current_reading'):
+                return
+                
+            time_elapsed = self.controller.current_reading[1]
             
             # Update existing plots
             for v_plot in self.voltage_plots:
@@ -1045,13 +1062,12 @@ class DataGUI(QMainWindow):
                     new_reading=self.controller.current_reading,
                     time_elapsed=time_elapsed)
             
-            # Update new enhanced components
+            # Update enhanced components
             self.stability_plot.update()
             self.control_panel.update()
             self.current_histogram.update()
             
-            self.fig.canvas.draw()
-            self.fig.canvas.flush_events()
+            self.canvas.draw()
             
         except Exception as e:
             logging.error(f"Error updating GUI: {str(e)}")
@@ -1998,98 +2014,60 @@ class CSVTestController:
     def cleanup(self):
         pass
 
-
 def main():
-    # Create a thread-safe queue for measurement data.
+    # Create a thread-safe queue for measurement data
     measurement_queue = queue.Queue()
 
-    # Create an Event to signal shutdown.
+    # Create an Event to signal shutdown
     stop_event = threading.Event()
 
-    # Initialize the controller and GUI.
+    # Initialize Qt application
+    app = QApplication([])
+    
     try:
         controller = TestController(stop_event)
     except serial.SerialException:
         input("[ERROR] One or more serial devices not present. Press enter to run with simulated data:\n>>>")
-        controller = CSVTestController(
-            csv_filename="250226_TP01,07_Ageing.csv")
+        controller = CSVTestController(csv_filename="250226_TP01,07_Ageing.csv")
         
-    app = QApplication.instance()
-    if app is None:
-        app = QApplication([])
-            
+    # Create GUI
     gui = DataGUI(controller)
+    gui.show()
+    
     overwatch = Overwatch(controller)
 
-    # Measurement thread function.
-
+    # Measurement thread function
     def measurement_thread():
         while not stop_event.is_set():
             try:
-                # Perform one measurement cycle.
+                # Perform one measurement cycle
                 if controller.test_loop():
-                    # Package the latest measurement data.
+                    # Package the latest measurement data
                     measurement_data = {
-                        # (device_name, elapsed_time, dmm1)
                         'current': controller.current_reading,
-                        # (device_name, elapsed_time, ps_voltage)
                         'voltage': controller.voltage_reading
                     }
                     measurement_queue.put(measurement_data)
                     overwatch.data_in(measurement_data)
             except Exception as e:
                 logging.error("Error in measurement thread: %s", e)
-            # Sleep briefly to avoid overwhelming the instruments.
             time.sleep(controller.measurement_interval)
 
-    # Start the measurement thread.
+    # Start the measurement thread
     meas_thread = threading.Thread(
         target=measurement_thread, name="MeasurementThread", daemon=True)
     meas_thread.start()
 
-    # GUI update function to be scheduled in the main thread.
-    def update_gui():
-        latest_data = None
-        if plt.fignum_exists(gui.fig.number):
-            # Drain the queue to get the most recent data.
-            while not measurement_queue.empty():
-                latest_data = measurement_queue.get()
-                if latest_data is not None:
-                    # Extract elapsed time from the current measurement.
-                    time_elapsed = latest_data['current'][1]
-                    # Update the voltage plots.
-                    for v_plot in gui.voltage_plots:
-                        v_plot.update(
-                            new_reading=latest_data['voltage'], time_elapsed=time_elapsed)
-                    # Update the current plots.
-                    for c_plot in gui.current_plots:
-                        c_plot.update(
-                            new_reading=latest_data['current'], time_elapsed=time_elapsed)
-
-            gui.fig.canvas.draw()
-            gui.fig.canvas.flush_events()
-            # Schedule the next update after 200ms (5 fps).
-            gui.fig.canvas.manager.window.after(200, update_gui)
-        else:
-            logging.info(
-                "GUI window closed; continuing measurements in background.")
-
-    # Schedule the first GUI update.
-    gui.fig.canvas.manager.window.after(200, update_gui)
-
-    # Start the matplotlib main loop.
-    # This call must be in the main thread.
-
+    # Start the Qt event loop
     try:
-        plt.show()
-        while True:
-            time.sleep(1)
+        app.exec_()
     except KeyboardInterrupt:
         print("Program interrupted by user (Ctrl+C).")
-        stop_event.set()
     finally:
+        stop_event.set()
         controller.cleanup()
-
-
+        
+        
 if __name__ == "__main__":
     main()
+
