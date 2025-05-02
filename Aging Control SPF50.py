@@ -1,4 +1,4 @@
-# 1000017
+# 1000018
 
 """
 ==========  TODO  ==========
@@ -1447,11 +1447,13 @@ class TestController:
 
     def _run_dynamic_control(self):
         """Execute one cycle of dynamic voltage control"""
-        current_value = float(self.current_multimeter.read_value())
         now = datetime.datetime.now()
 
+        current_value = self.current_reading[2]
+        timestamp = self.current_reading[1]
+
         # Add measurement to stability manager
-        self.stability_manager.add_measurement(current_value, now)
+        self.stability_manager.add_measurement(current_value, timestamp)
 
         # Only evaluate every 60 seconds
         if (now - self.stability_manager.last_voltage_change).total_seconds() < 60:
