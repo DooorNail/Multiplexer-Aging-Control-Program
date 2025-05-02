@@ -1,4 +1,4 @@
-# 1000019
+# 1000020
 
 """
 ==========  TODO  ==========
@@ -48,8 +48,14 @@ import queue
 import os
 import numpy as np
 from colorama import init, Fore, Style
-from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT
+from matplotlib.backends.backend_qt5agg import (
+    FigureCanvasQTAgg as FigureCanvas,
+    NavigationToolbar2QT as NavigationToolbar
+)
+from PyQt5.QtWidgets import QMainWindow, QVBoxLayout, QWidget, QApplication
 from matplotlib.gridspec import GridSpec
+
+
 
 # Initialize colorama
 init(autoreset=True)
@@ -962,12 +968,34 @@ class CurrentHistogram:
                 bbox=dict(facecolor='white', alpha=0.7)
             )
 
-class DataGUI:
-    def __init__(self, controller):
+
+class DataGUI(QMainWindow):
+    def __init__(self, controller, parent=None):
+        super().__init__(parent)
         self.controller = controller
-        # Create larger figure with 3x3 grid
+        
+        # Create the main widget and layout
+        self.main_widget = QWidget()
+        self.setCentralWidget(self.main_widget)
+        layout = QVBoxLayout(self.main_widget)
+        
+        # Create the figure and canvas
         self.fig = plt.figure(figsize=(20, 14))
-        gs = GridSpec(3, 3, figure=self.fig)
+        self.canvas = FigureCanvas(self.fig)
+        layout.addWidget(self.canvas)
+        
+        # Create the navigation toolbar
+        self.toolbar = NavigationToolbar(self.canvas, self)
+        layout.addWidget(self.toolbar)
+        
+        # Initialize plots as before
+        self._init_plots()
+        
+        # Set window title
+        self.setWindowTitle(f"Test System - {self.controller.logger.get_current_device_name()}")
+        
+    def _init_plots(self):
+        gs = self.fig.add_gridspec(3, 3)
         
         # Main plots (span multiple columns)
         self.ax_current_full = self.fig.add_subplot(gs[0, :-1])
@@ -999,18 +1027,7 @@ class DataGUI:
         self.stability_plot = StabilityPlot(self.ax_stability, self.controller)
         self.control_panel = ControlPanel(self.ax_control, self.controller)
         self.current_histogram = CurrentHistogram(self.ax_histogram, self.controller)
-        
-        # Add toolbar for interactive controls
-        self.fig.canvas.manager.toolbar = NavigationToolbar2QT(
-            self.fig.canvas, self.fig)
-        
-        # Set window title
-        self.fig.canvas.manager.set_window_title(
-            f"Dielectric Test System - {self.controller.logger.get_current_device_name()}")
-        
-        # Adjust layout
-        plt.tight_layout()
-        self.fig.subplots_adjust(top=0.95, hspace=0.4, wspace=0.3)
+
         
     def update_plots(self):
         """Update all plot components"""
@@ -1996,6 +2013,11 @@ def main():
         input("[ERROR] One or more serial devices not present. Press enter to run with simulated data:\n>>>")
         controller = CSVTestController(
             csv_filename="250226_TP01,07_Ageing.csv")
+        
+    app = QApplication.instance()
+    if app is None:
+        app = QApplication([])
+            
     gui = DataGUI(controller)
     overwatch = Overwatch(controller)
 
