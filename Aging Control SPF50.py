@@ -399,15 +399,16 @@ class PowerSupply:
             # print(f"[PS READ] {datetime.datetime.now()}")
             self.send_no_check(">M0?")
             # print(f"[PS READ] {datetime.datetime.now()}")
-            response = self.serial_read_line().replace("M0:", "")
-            # print(f"[PS READ] {datetime.datetime.now()}")
-            if "E0" in response:
-                response = self.serial_read_line().replace("M0:", "")
-                # print(f"[PS READ] {datetime.datetime.now()}")
-            return float(response)
+            
+            for i in range(5):
+                response = self.serial_read_line()
+                if "M0" in response:
+                    return float(response.replace("M0:", ""))  
+
         except Exception as e:
             logging.error("Error reading voltage: %s", e)
-            return None
+        
+        return None
 
     def startup(self):
         """
@@ -645,6 +646,9 @@ class CurrentPlot:
     def update(self, new_reading, time_elapsed):
         device_name, time_val, current_val = new_reading
 
+        if current_val is None:
+            return
+
         if self.is_scaled_plot:
             # Handle scaled plot (single device)
             if device_name != self.current_device:
@@ -756,6 +760,9 @@ class VoltagePlot:
 
     def update(self, new_reading, time_elapsed):
         device_name, time_val, voltage_val = new_reading
+
+        if voltage_val is None:
+           return  
 
         if self.is_scaled_plot:
             # Handle scaled plot
