@@ -1,4 +1,4 @@
-# 1000016
+# 1000017
 
 """
 ==========  TODO  ==========
@@ -866,7 +866,7 @@ class DataGUI:
         current_time = 0
         start_voltage = 0
         for seg in charging_curve:
-            final_voltage, ramp_rate, seg_total_time = seg
+            final_voltage, ramp_rate, seg_total_time, dyn = seg
             ramp_duration = (final_voltage - start_voltage) / \
                 ramp_rate if ramp_rate != 0 else 0
             plateau_duration = seg_total_time - ramp_duration
@@ -1009,7 +1009,7 @@ class TestController:
 
         charging_curve_duration = 0
         for seg in self.power_supply.charging_curve:
-            final_voltage, ramp_rate, seg_total_time = seg
+            final_voltage, ramp_rate, seg_total_time, dyn = seg
             charging_curve_duration += seg_total_time
 
         print(Fore.CYAN + "\n"*5 + "=" * 50 + "\n"
