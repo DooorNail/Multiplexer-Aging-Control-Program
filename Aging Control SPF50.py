@@ -992,7 +992,7 @@ class DataGUI(QMainWindow):
         self._init_plots()
         
         # Set window title
-        self.setWindowTitle(f"Test System - {self.controller.logger.get_current_device_name()}")
+        self.setWindowTitle(f"Test System")# - {self.controller.logger.get_current_device_name()}")
         
     def _init_plots(self):
         gs = self.fig.add_gridspec(3, 3)
