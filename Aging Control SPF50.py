@@ -1,4 +1,4 @@
-# 1000015
+# 1000016
 
 """
 ==========  TODO  ==========
@@ -18,11 +18,16 @@ Breakdown or aging?
     --> Voltage and time?
     --> bad devices should be identified and remove if affecting the other ones
 
-    Breakdown options:
-    - Max voltage
-    - Ramp rate
-    - threshold current
-    + increase multimeter read rate?
+During Group hold:
+    if current is > 80% of limit for >50% of last 60 seconds.
+        set voltage to current voltage - 15V (minimum 15V)
+        loop through each individual sample in order of suspiciousness (run stability calculation on the end of the individual ramp)
+        wait 15s, record current.
+        remove the device with the highest current 
+        continue
+
+
+
     
 Automatic port selection
 
@@ -925,6 +930,8 @@ class TestController:
 
         self.breakdown_test = False
         self.end_test = False
+        
+        # self.dynamic_voltage_control = True
 
         # Initialize the temperature/humidity sensor
         # self.sensor = TemperatureHumiditySensor(port='COM5', baudrate=4800)
