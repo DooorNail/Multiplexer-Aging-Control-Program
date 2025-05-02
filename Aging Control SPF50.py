@@ -214,47 +214,34 @@ class PowerSupply:
         self.sequence_complete = False
 
         if charging_curve is None:
+
+            """ 
+            CHARGING CURVE has 4 parameters for each stage:
+            [0] Voltage Setpoint
+            [1] Ramprate (V/s)
+            [2] Segment duration, this includes the initial ramp (s)
+            [3] Whether dynamic voltage should run during this section (0: no  || 1: yes)
+            """
+            
             # self.charging_curve = [
-            #     [0, 0, 0],
-            #     [100, 5, 140],
-            #     [200, 5, 140],
-            #     [250, 2, 240],
-            #     [300, 2, 240],
-            #     [350, 1, 290],
-            #     [400, 1, 350],
-            #     [450, 0.75, 360],
-            #     [500, 0.5, 400],
-            #     [520, 0.1, 600]
-            # ]
-            # self.charging_curve = [
-            #     [0, 0, 0],
-            #     [10, 1, 15],
-            #     [20, 1, 15],
-            #     [50, 2, 40]
-            #     # [150, 5, 40],
-            #     # [300, 2, 120]
+            #     [0, 0, 0, 0],
+            #     [100, 5, 140, 0],
+            #     [200, 2, 140, 0],
+            #     [250, 2, 240, 0],
+            #     [300, 2, 240, 0],
+            #     [350, 1, 290, 0],
+            #     [400, 1, 350, 0],
+            #     [450, 0.75, 360, 0],
+            #     [500, 0.5, 400, 0],
+            #     [520, 0.1, 300, 0],
+            #     [520, 1, 600, 1]
             # ]
             self.charging_curve = [
-                [0, 0, 0],
-                [100, 5, 140],
-                [200, 2, 140],
-                [250, 2, 240],
-                [300, 2, 240],
-                [350, 1, 290],
-                [400, 1, 350],
-                [450, 0.75, 360],
-                [500, 0.5, 400],
-                [520, 0.1, 900]
+                [0, 0, 0, 0],
+                [100, 5, 60, 0],
+                [100, 1, 320, 1]
             ]
-            # self.charging_curve = [
-            #     [0, 0, 0],
-            #     [10, 10, 15],
-            #     [15, 10, 15],
-            #     [20, 10, 15],
-            #     [25, 10, 15],
-            #     [30, 10, 15],
-            #     [35, 10, 15]
-            # ]
+            
         else:
             self.charging_curve = charging_curve
 
@@ -404,15 +391,15 @@ class PowerSupply:
             # print(f"[PS READ] {datetime.datetime.now()}")
             self.send_no_check(">M0?")
             # print(f"[PS READ] {datetime.datetime.now()}")
-            
+
             for i in range(5):
                 response = self.serial_read_line()
                 if "M0" in response:
-                    return float(response.replace("M0:", ""))  
+                    return float(response.replace("M0:", ""))
 
         except Exception as e:
             logging.error("Error reading voltage: %s", e)
-        
+
         return None
 
     def startup(self):
@@ -439,6 +426,14 @@ class PowerSupply:
         # self.segment_start_time = datetime.datetime.now()
         self.voltage_setpoint_set(0)
         self.run_program()
+
+    def is_segment_dynamic(self):
+        if len(self.charging_curve[self.prgm_index]) >= 4:
+            return self.charging_curve[self.prgm_index][3]
+        return 0
+    
+    def get_segment_voltage_setpoint(self):
+        return self.charging_curve[self.prgm_index[0]]
 
     def run_program(self):
         """
@@ -767,7 +762,7 @@ class VoltagePlot:
         device_name, time_val, voltage_val = new_reading
 
         if voltage_val is None:
-           return  
+            return
 
         if self.is_scaled_plot:
             # Handle scaled plot
@@ -930,8 +925,10 @@ class TestController:
 
         self.breakdown_test = False
         self.end_test = False
-        
-        # self.dynamic_voltage_control = True
+
+        self.stability_manager = StabilityManager(self)
+
+        self.dynamic_voltage_control = True
 
         # Initialize the temperature/humidity sensor
         # self.sensor = TemperatureHumiditySensor(port='COM5', baudrate=4800)
@@ -1371,10 +1368,11 @@ class TestController:
 
     def test_loop(self):
         """Do one measurement cycle for the current device."""
+        now = datetime.datetime.now()
         if self.current_device_idx is None:
             self.start_next_device_test()
         elif self.current_device_idx == 999:  # group hold
-            elapsed = (datetime.datetime.now() -
+            elapsed = (now -
                        self.test_start_time).total_seconds()
             if elapsed > self.hold_duration:
                 self.power_supply.off()
@@ -1392,7 +1390,13 @@ class TestController:
                 self.finish_device_test(self.current_device_idx)
                 self.start_next_device_test()
 
-        return self.perform_measurement()
+        measurementSuccess = self.perform_measurement()
+
+        if measurementSuccess and self.dynamic_voltage_control:
+            if self.power_supply.is_segment_dynamic():
+                self._run_dynamic_control()
+
+        return measurementSuccess
 
     def perform_measurement(self):
         current_value = self.current_multimeter.read_value()
@@ -1440,6 +1444,55 @@ class TestController:
             logging.error("Error converting measurement values: %s", e)
 
         return False
+
+    def _run_dynamic_control(self):
+        """Execute one cycle of dynamic voltage control"""
+        current_value = float(self.current_multimeter.read_value())
+        now = datetime.datetime.now()
+
+        # Add measurement to stability manager
+        self.stability_manager.add_measurement(current_value, now)
+
+        # Only evaluate every 60 seconds
+        if (now - self.stability_manager.last_voltage_change).total_seconds() < 60:
+            return
+
+        # Get stability analysis and recommendation
+        analysis = self.stability_manager.evaluate_stability()
+        recommendation = self.stability_manager.recommend_voltage_adjustment(
+            analysis)
+
+        if recommendation:
+            self._execute_voltage_recommendation(recommendation)
+
+    def _execute_voltage_recommendation(self, recommendation):
+        """Process stability manager's voltage recommendation"""
+        
+        current_voltage = self.power_supply.read_voltage()
+        if current_voltage is None:
+            logging.warning("Could not read current voltage - aborting adjustment")
+            return
+        
+        new_voltage = recommendation['voltage']
+        if abs(new_voltage - current_voltage) > 50:  # Safety check
+            logging.error(f"Abnormal voltage change requested: {current_voltage}V to {new_voltage}V")
+            return
+        
+        action = recommendation['action']
+
+        if action == 'increase':
+            print(
+                f"[Dynamic] Increasing voltage to {recommendation['voltage']}V")
+            self.power_supply.voltage_setpoint_set(recommendation['voltage'])
+            self.stability_manager.current_voltage = recommendation['voltage']
+
+        elif action == 'decrease':
+            print(
+                f"[Dynamic] Decreasing voltage to {recommendation['voltage']}V")
+            self.power_supply.voltage_setpoint_set(recommendation['voltage'])
+            self.stability_manager.current_voltage = recommendation['voltage']
+
+        self.stability_manager.last_voltage_change = datetime.datetime.now()
 
     def finish_device_test(self, device_idx):
         """Clean up after testing a device."""
@@ -1506,6 +1559,7 @@ class TestController:
         time.sleep(5)  # Settling time
 
         self.test_start_time = datetime.datetime.now()
+        self.stability_manager.reset_for_new_device()
         self.power_supply.restart_program()
         self.current_multimeter.read_value(clear_extra=True)
 
@@ -1547,6 +1601,108 @@ class TestController:
         except Exception as e:
             logging.error("Error logging buffer to file: %s", e)
         print("Cleanup complete. Program terminated.")
+
+
+class StabilityManager:
+    def __init__(self, controller):
+        self.controller = controller
+        self.measurements = []
+        self.analysis_window = 60  # seconds of data to analyze
+        self.instability_window = 30  # points for rolling calculation
+        self.power_factor = 1.2
+        self.stability_threshold = 5e-10
+        self.max_instability = 1e-8
+
+        # State tracking
+        self.consecutive_stable = 0
+        self.consecutive_unstable = 0
+        self.last_voltage_change = None
+
+    def add_measurement(self, current, timestamp):
+        """Add new current measurement with timestamp"""
+        self.measurements.append((current, timestamp))
+        self._trim_old_measurements(timestamp)
+
+    def _trim_old_measurements(self, current_time):
+        """Remove measurements older than analysis window"""
+        cutoff = current_time - \
+            datetime.timedelta(seconds=self.analysis_window)
+        self.measurements = [m for m in self.measurements if m[1] > cutoff]
+
+    def evaluate_stability(self):
+        """Calculate current stability focusing only on current values above the mean"""
+        if len(self.measurements) < 10:  # Minimum data points
+            return None
+
+        currents = np.array([m[0] for m in self.measurements])
+        timestamps = np.array([m[1] for m in self.measurements])
+
+        # Calculate rolling mean
+        rolling_mean = np.convolve(
+            currents,
+            np.ones(self.instability_window)/self.instability_window,
+            mode='valid'
+        )
+
+        # Only consider points where current > mean
+        above_mean = currents[-len(rolling_mean):] > rolling_mean
+        diffs = currents[-len(rolling_mean):][above_mean] - \
+            rolling_mean[above_mean]
+
+        if len(diffs) > 0:
+            instability = np.sum(np.abs(diffs) ** self.power_factor)
+        else:
+            instability = 0  # No points above mean
+
+        return {
+            'instability': instability,
+            'is_stable': instability < self.stability_threshold,
+            'current_mean': np.mean(currents[-self.instability_window:]),
+            'current_std': np.std(currents[-self.instability_window:]),
+            'points_above_mean': len(diffs)  # For debugging
+        }
+
+    def recommend_voltage_adjustment(self, analysis):
+        """Determine appropriate voltage change based on stability analysis"""
+        if analysis is None:
+            return None
+
+        if analysis['is_stable']:
+            self.consecutive_stable += 1
+            self.consecutive_unstable = 0
+
+            # Calculate adaptive voltage increment (2-10V linear scale)
+            stability_ratio = 1 - \
+                (analysis['instability'] / self.max_instability)
+            increment = 2 + 8 * max(0, min(1, stability_ratio))
+
+            
+            return {
+                'action': 'increase',
+                'voltage': min(self.controller.power_supply.voltage_setpoint + increment, 850),
+                'increment': increment
+            }
+        else:
+            self.consecutive_unstable += 1
+            self.consecutive_stable = 0
+
+            if self.consecutive_unstable >= 5:
+                return {
+                    'action': 'decrease',
+                    'voltage': max(self.controller.power_supply.voltage_setpoint - 10, 0),
+                    'reason': 'persistent_instability'
+                }
+            return {
+                'action': 'maintain',
+                'reason': 'unstable_reading'
+            }
+
+    def reset_for_new_device(self):
+        """Clear state when starting a new device"""
+        self.measurements = []
+        self.consecutive_stable = 0
+        self.consecutive_unstable = 0
+        self.last_voltage_change = datetime.datetime.now()
 
 
 class Overwatch:
