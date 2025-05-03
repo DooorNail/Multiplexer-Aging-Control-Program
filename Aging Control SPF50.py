@@ -1045,74 +1045,55 @@ class DataGUI(QMainWindow):
         self.current_histogram = CurrentHistogram(self.ax_histogram, self.controller)
 
     def update_plots(self):
-        """Robust plot updater that handles all edge cases"""
+        """Standardized plot updater with consistent argument handling"""
         try:
-            # Safely get all required data with fallbacks
-            current_data = getattr(self.controller, 'current_reading', None)
-            voltage_data = getattr(self.controller, 'voltage_reading', None)
+            # Safely get and validate data
+            current_data = getattr(self.controller, 'current_reading', ("", 0, 0))
+            voltage_data = getattr(self.controller, 'voltage_reading', ("", 0))
             
-            # Validate data structure
-            def validate_reading(reading, min_length):
-                return (reading is not None and 
-                        hasattr(reading, '__getitem__') and 
-                        len(reading) >= min_length)
-            
-            current_valid = validate_reading(current_data, 3)
-            voltage_valid = validate_reading(voltage_data, 2)
-            
-            if not (current_valid and voltage_valid):
-                logging.debug("Skipping update - incomplete data: "
-                            f"current_valid={current_valid}, "
-                            f"voltage_valid={voltage_valid}")
+            # Ensure we have complete data
+            if (len(current_data) < 3 or len(voltage_data) < 2 or
+                current_data[1] is None or voltage_data[1] is None):
                 return
                 
-            # Extract values with safety checks
-            try:
-                device_name = str(current_data[0])
-                time_elapsed = float(current_data[1])
-                current_val = float(current_data[2])
-                voltage_val = float(voltage_data[1])
-            except (IndexError, TypeError, ValueError) as e:
-                logging.error(f"Data extraction error: {str(e)}")
-                return
-                
-            # Prepare standardized data packets
-            current_packet = (device_name, time_elapsed, current_val)
-            voltage_packet = (device_name, time_elapsed, voltage_val)
+            device_name, time_elapsed, current_val = current_data
+            _, voltage_val = voltage_data
             
-            # Update plots only if they exist
-            def safe_plot_update(plot, data):
+            # Standardized update calls for each plot type
+            def safe_update(plot, *args):
                 if plot is not None and hasattr(plot, 'update'):
                     try:
-                        plot.update(data)
+                        plot.update(*args)
                     except Exception as e:
-                        logging.error(f"Plot update failed: {str(e)}")
-            
-            # Update all plot components
+                        logging.debug(f"Plot update skipped: {str(e)}")
+
+            # Update current plots (expect new_reading, time_elapsed)
             for plot in self.current_plots:
-                safe_plot_update(plot, current_packet)
-                
-            for plot in self.voltage_plots:
-                safe_plot_update(plot, voltage_packet)
-                
-            # Update special plots
-            safe_plot_update(self.stability_plot, None)
-            safe_plot_update(self.control_panel, None)
-            safe_plot_update(self.current_histogram, None)
+                safe_update(plot, 
+                        (device_name, time_elapsed, current_val),
+                        time_elapsed)
             
-            # Efficient canvas update
-            if hasattr(self, 'canvas') and self.canvas is not None:
-                try:
-                    self.canvas.draw_idle()
-                except Exception as e:
-                    logging.error(f"Canvas draw failed: {str(e)}")
-                    
+            # Update voltage plots (expect new_reading, time_elapsed)
+            for plot in self.voltage_plots:
+                safe_update(plot,
+                        (device_name, time_elapsed, voltage_val),
+                        time_elapsed)
+            
+            # Update stability plot (expects no args)
+            safe_update(self.stability_plot)
+            
+            # Update control panel (expects no args)
+            safe_update(self.control_panel)
+            
+            # Update histogram (expects no args)
+            safe_update(self.current_histogram)
+            
+            # Refresh display
+            if hasattr(self, 'canvas') and self.canvas:
+                self.canvas.draw_idle()
+                
         except Exception as e:
-            logging.error(f"Critical GUI update error: {str(e)}")
-            # Prevent complete crash by disabling updates if we fail too often
-            if hasattr(self, 'timer') and self.timer is not None:
-                self.timer.stop()
-                logging.error("Stopped GUI updates due to persistent errors")
+            logging.error(f"GUI Update error: {str(e)}")
 
     def compute_planned_curve(self, charging_curve):
         """
