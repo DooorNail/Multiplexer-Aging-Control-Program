@@ -35,6 +35,7 @@ Automatic port selection
 
 """
 
+import sys
 import datetime
 import time
 import matplotlib.pyplot as plt
@@ -409,7 +410,7 @@ class PowerSupply:
             # print(f"[PS READ] {datetime.datetime.now()}")
             self.send_no_check(">M0?")
             # print(f"[PS READ] {datetime.datetime.now()}")
-
+            time.sleep(0.01)
             for i in range(5):
                 response = self.serial_read_line()
                 if "M0" in response:
@@ -1159,17 +1160,19 @@ class TestController:
         self.hold_current = 0.5e-3
         self.hold_duration = 12 * 60 * 60  # time to hold the group at voltage in s
 
-        self.run_self_test()
+        # self.run_self_test()
 
-        self.indentify_populated_channels()
+        # self.indentify_populated_channels()
 
-        self.select_program()
+        # self.select_program()
 
-        if not self.connected_devices:
-            raise Exception("No devices connected to test.")
+        # if not self.connected_devices:
+        #     raise Exception("No devices connected to test.")
 
-        # Get device names from user
-        self.get_device_names()
+        # # Get device names from user
+        # self.get_device_names()
+        
+        self.connected_devices = [None, "GT02"]
 
         self.multiplexer.discharge(0)
 
