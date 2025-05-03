@@ -961,17 +961,20 @@ class TestController:
         self.hold_current = 0.5e-3
         self.hold_duration = 12 * 60 * 60  # time to hold the group at voltage in s
 
-        self.run_self_test()
+        # self.run_self_test()
 
-        self.indentify_populated_channels()
+        # self.indentify_populated_channels()
 
-        self.select_program()
+        # self.select_program()
 
-        if not self.connected_devices:
-            raise Exception("No devices connected to test.")
+        # if not self.connected_devices:
+        #     raise Exception("No devices connected to test.")
 
-        # Get device names from user
-        self.get_device_names()
+        # # Get device names from user
+        # self.get_device_names()
+        
+        self.device_names = [None, "GT02"]
+        self.multiplexer.arm()
 
         self.multiplexer.discharge(0)
 
@@ -1627,8 +1630,7 @@ class StabilityManager:
 
     def _trim_old_measurements(self, current_time):
         """Remove measurements older than analysis window"""
-        cutoff = current_time - \
-            datetime.timedelta(seconds=self.analysis_window)
+        cutoff = current_time - 60
         self.measurements = [m for m in self.measurements if m[1] > cutoff]
 
     def evaluate_stability(self):
