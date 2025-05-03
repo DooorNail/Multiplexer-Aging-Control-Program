@@ -867,13 +867,21 @@ class DataGUI(QMainWindow):
         self.control_buttons.addWidget(self.stop_button)
         
         # Create matplotlib figures and canvases
-        self.create_plots()
+        self.fig, ((self.current_ax1, self.current_ax2), 
+                   (self.voltage_ax1, self.voltage_ax2)) = plt.subplots(2, 2, figsize=(12, 8))
+        self.fig.tight_layout(pad=3.0)
         
-        # Add all components to main layout
-        self.main_layout.addLayout(self.status_bar)
+        # Single canvas for all plots
+        self.canvas = FigureCanvas(self.fig)
+        
+        # Just one navigation toolbar
+        self.toolbar = NavigationToolbar(self.canvas, self)
+        
+        # Add to layout
+        self.main_layout.addWidget(self.toolbar)
+        self.main_layout.addWidget(self.canvas)
+        
         self.main_layout.addLayout(self.control_buttons)
-        self.main_layout.addWidget(self.current_plots_widget)
-        self.main_layout.addWidget(self.voltage_plots_widget)
         
         # Connect buttons
         self.pause_button.clicked.connect(self.toggle_pause)
@@ -903,22 +911,6 @@ class DataGUI(QMainWindow):
         
         # Track pause state
         self.paused = False
-    
-    def create_plots(self):
-        """Create the matplotlib figures and canvases for plotting"""
-        # Current plots (top)
-        self.current_fig, (self.current_ax1, self.current_ax2) = plt.subplots(1, 2, figsize=(12, 4))
-        self.current_fig.tight_layout(pad=3.0)
-        self.current_plots_widget = FigureCanvas(self.current_fig)
-        self.current_toolbar = NavigationToolbar(self.current_plots_widget, self)
-        self.main_layout.addWidget(self.current_toolbar)
-        
-        # Voltage plots (bottom)
-        self.voltage_fig, (self.voltage_ax1, self.voltage_ax2) = plt.subplots(1, 2, figsize=(12, 4))
-        self.voltage_fig.tight_layout(pad=3.0)
-        self.voltage_plots_widget = FigureCanvas(self.voltage_fig)
-        self.voltage_toolbar = NavigationToolbar(self.voltage_plots_widget, self)
-        self.main_layout.addWidget(self.voltage_toolbar)
     
     def compute_planned_curve(self, charging_curve):
         """
@@ -962,7 +954,6 @@ class DataGUI(QMainWindow):
         while not self.measurement_queue.empty():
             latest_data = self.measurement_queue.get()
             if latest_data is not None:
-                # Extract elapsed time from the current measurement
                 time_elapsed = latest_data['current'][1]
                 
                 # Update status label
@@ -976,23 +967,14 @@ class DataGUI(QMainWindow):
                     f"Voltage: {voltage_val:.1f} V"
                 )
                 
-                # Update the voltage plots
-                for v_plot in self.voltage_plots:
-                    v_plot.update(
-                        new_reading=latest_data['voltage'], 
-                        time_elapsed=time_elapsed
-                    )
-                
-                # Update the current plots
-                for c_plot in self.current_plots:
-                    c_plot.update(
-                        new_reading=latest_data['current'], 
-                        time_elapsed=time_elapsed
-                    )
+                # Update plots
+                self.voltage_plots[0].update(latest_data['voltage'], time_elapsed)
+                self.voltage_plots[1].update(latest_data['voltage'], time_elapsed)
+                self.current_plots[0].update(latest_data['current'], time_elapsed)
+                self.current_plots[1].update(latest_data['current'], time_elapsed)
         
-        # Redraw the canvases
-        self.current_plots_widget.draw()
-        self.voltage_plots_widget.draw()
+        # Redraw just once for all plots
+        self.canvas.draw()
     
     def toggle_pause(self):
         """Toggle pause state of the measurements"""
