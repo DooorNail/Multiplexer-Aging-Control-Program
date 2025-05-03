@@ -1045,33 +1045,54 @@ class DataGUI(QMainWindow):
         self.current_histogram = CurrentHistogram(self.ax_histogram, self.controller)
 
     def update_plots(self):
-        """Update all plot components"""
+        """Update all plot components with controller data"""
         try:
+            # Safely get current reading data
             if not hasattr(self.controller, 'current_reading'):
                 return
                 
-            time_elapsed = self.controller.current_reading[1]
+            current_reading = self.controller.current_reading
+            voltage_reading = getattr(self.controller, 'voltage_reading', None)
             
-            # Update existing plots
+            # Validate readings
+            if (not isinstance(current_reading, (tuple, list)) or 
+                len(current_reading) < 3 or
+                not isinstance(voltage_reading, (tuple, list)) or
+                len(voltage_reading) < 2):
+                return
+                
+            device_name, time_elapsed, current_val = current_reading[:3]
+            _, voltage_val = voltage_reading[:2]
+            
+            # Update voltage plots
             for v_plot in self.voltage_plots:
-                v_plot.update(
-                    new_reading=self.controller.voltage_reading,
-                    time_elapsed=time_elapsed)
-                    
+                if v_plot:  # Check if plot exists
+                    v_plot.update(
+                        new_reading=(device_name, time_elapsed, voltage_val),
+                        time_elapsed=time_elapsed)
+                        
+            # Update current plots
             for c_plot in self.current_plots:
-                c_plot.update(
-                    new_reading=self.controller.current_reading,
-                    time_elapsed=time_elapsed)
+                if c_plot:  # Check if plot exists
+                    c_plot.update(
+                        new_reading=(device_name, time_elapsed, current_val),
+                        time_elapsed=time_elapsed)
             
-            # Update enhanced components
-            self.stability_plot.update()
-            self.control_panel.update()
-            self.current_histogram.update()
+            # Update enhanced components if they exist
+            if self.stability_plot:
+                self.stability_plot.update()
+            if self.control_panel:
+                self.control_panel.update()
+            if self.current_histogram:
+                self.current_histogram.update()
             
-            self.canvas.draw()
+            self.canvas.draw_idle()  # More efficient than full draw
             
         except Exception as e:
-            logging.error(f"Error updating GUI: {str(e)}")
+            logging.error(f"Error updating plots: {str(e)}")
+            # Optional: Add more detailed error logging
+            logging.error(f"Current reading: {getattr(self.controller, 'current_reading', 'N/A')}")
+            logging.error(f"Voltage reading: {getattr(self.controller, 'voltage_reading', 'N/A')}")
 
     def compute_planned_curve(self, charging_curve):
         """
@@ -1172,7 +1193,9 @@ class TestController:
         # # Get device names from user
         # self.get_device_names()
         
-        self.connected_devices = [None, "GT02"]
+        self.device_names = [None, "GT02"]
+        self.multiplexer.arm()
+
 
         self.multiplexer.discharge(0)
 
