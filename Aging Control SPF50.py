@@ -37,7 +37,6 @@ Automatic port selection
 
 import datetime
 import time
-import matplotlib.pyplot as plt
 import pyvisa as visa
 import serial
 import io
@@ -48,6 +47,14 @@ import queue
 import os
 import numpy as np
 from colorama import init, Fore, Style
+
+# PyQt5 imports
+from PyQt5.QtWidgets import (QApplication, QMainWindow, QVBoxLayout, QWidget, 
+                            QHBoxLayout, QLabel, QPushButton, QMessageBox)
+from PyQt5.QtCore import QTimer, Qt
+from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
+from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
+import matplotlib.pyplot as plt
 
 # Initialize colorama
 init(autoreset=True)
@@ -682,7 +689,6 @@ class CurrentPlot:
 
             self.realtime_line.set_label(
                 f"{device_name}: {self.rt_currents[-1]:.4g}uA")
-            # self.realtime_line.set_label(f"hecing")
 
         else:
             # Handle full plot (multiple devices)
@@ -836,25 +842,84 @@ class VoltagePlot:
         self.ax.legend()
 
 
-class DataGUI:
+class DataGUI(QMainWindow):
     def __init__(self, controller):
+        super().__init__()
         self.controller = controller
-        # Create figure with two subplots.
-        self.fig, axs = plt.subplots(2, 2, figsize=(20, 14))
-        ax1, ax2, ax3, ax4 = axs.ravel()
-
-        # Plot 2: Charging curve and realtime PS voltage.
-        # Precompute the planned charging curve.
-
+        self.setWindowTitle("Multimeter Data Logger")
+        self.setGeometry(100, 100, 1200, 800)
+        
+        # Create main widget and layout
+        self.main_widget = QWidget()
+        self.setCentralWidget(self.main_widget)
+        self.main_layout = QVBoxLayout(self.main_widget)
+        
+        # Status bar at the top
+        self.status_bar = QHBoxLayout()
+        self.status_label = QLabel("Initializing...")
+        self.status_bar.addWidget(self.status_label)
+        
+        # Control buttons
+        self.control_buttons = QHBoxLayout()
+        self.pause_button = QPushButton("Pause")
+        self.stop_button = QPushButton("Stop")
+        self.control_buttons.addWidget(self.pause_button)
+        self.control_buttons.addWidget(self.stop_button)
+        
+        # Create matplotlib figures and canvases
+        self.create_plots()
+        
+        # Add all components to main layout
+        self.main_layout.addLayout(self.status_bar)
+        self.main_layout.addLayout(self.control_buttons)
+        self.main_layout.addWidget(self.current_plots_widget)
+        self.main_layout.addWidget(self.voltage_plots_widget)
+        
+        # Connect buttons
+        self.pause_button.clicked.connect(self.toggle_pause)
+        self.stop_button.clicked.connect(self.stop_measurements)
+        
+        # Setup update timer
+        self.update_timer = QTimer()
+        self.update_timer.timeout.connect(self.update_plots)
+        self.update_timer.start(200)  # Update every 200ms (5fps)
+        
+        # Data queue for thread-safe communication
+        self.measurement_queue = queue.Queue()
+        
+        # Initialize plots with charging curve data
         computed_curve = self.compute_planned_curve(
             self.controller.power_supply.charging_curve)
-
-        self.voltage_plots = [VoltagePlot(ax3, computed_curve, x_max=computed_curve[0][-1]),
-                              VoltagePlot(ax4, computed_curve, x_scale=300, is_scaled_plot=True)]
-
-        self.current_plots = [CurrentPlot(ax1, self.controller, x_max=computed_curve[0][-1]),
-                              CurrentPlot(ax2, self.controller, x_scale=300, is_scaled_plot=True)]
-
+        
+        self.voltage_plots = [
+            VoltagePlot(self.voltage_ax1, computed_curve, x_max=computed_curve[0][-1]),
+            VoltagePlot(self.voltage_ax2, computed_curve, x_scale=300, is_scaled_plot=True)
+        ]
+        
+        self.current_plots = [
+            CurrentPlot(self.current_ax1, self.controller, x_max=computed_curve[0][-1]),
+            CurrentPlot(self.current_ax2, self.controller, x_scale=300, is_scaled_plot=True)
+        ]
+        
+        # Track pause state
+        self.paused = False
+    
+    def create_plots(self):
+        """Create the matplotlib figures and canvases for plotting"""
+        # Current plots (top)
+        self.current_fig, (self.current_ax1, self.current_ax2) = plt.subplots(1, 2, figsize=(12, 4))
+        self.current_fig.tight_layout(pad=3.0)
+        self.current_plots_widget = FigureCanvas(self.current_fig)
+        self.current_toolbar = NavigationToolbar(self.current_plots_widget, self)
+        self.main_layout.addWidget(self.current_toolbar)
+        
+        # Voltage plots (bottom)
+        self.voltage_fig, (self.voltage_ax1, self.voltage_ax2) = plt.subplots(1, 2, figsize=(12, 4))
+        self.voltage_fig.tight_layout(pad=3.0)
+        self.voltage_plots_widget = FigureCanvas(self.voltage_fig)
+        self.voltage_toolbar = NavigationToolbar(self.voltage_plots_widget, self)
+        self.main_layout.addWidget(self.voltage_toolbar)
+    
     def compute_planned_curve(self, charging_curve):
         """
         Convert the 2D charging_curve array into a full time/voltage curve.
@@ -887,27 +952,85 @@ class DataGUI:
                 voltages.append(final_voltage)
             start_voltage = final_voltage
         return times, voltages
-
+    
     def update_plots(self):
-        """
-        Update both subplots with the latest data.
-        """
-        try:
-
-            # time_elapsed = (datetime.datetime.now() - self.controller.test_start_time).total_seconds()
-            time_elapsed = self.controller.current_reading[0]
-            for v_plot in self.voltage_plots:
-                v_plot.update(
-                    new_reading=self.controller.voltage_reading, time_elapsed=time_elapsed)
-
-            for c_plot in self.current_plots:
-                c_plot.update(
-                    new_reading=self.controller.current_reading, time_elapsed=time_elapsed)
-
-            self.fig.canvas.draw()
-            self.fig.canvas.flush_events()
-        except Exception as e:
-            logging.error("Error updating : %s", e)
+        """Update all plots with the latest data"""
+        if self.paused:
+            return
+            
+        # Process all available data from the queue
+        while not self.measurement_queue.empty():
+            latest_data = self.measurement_queue.get()
+            if latest_data is not None:
+                # Extract elapsed time from the current measurement
+                time_elapsed = latest_data['current'][1]
+                
+                # Update status label
+                device_name = latest_data['current'][0]
+                current_val = latest_data['current'][2]
+                voltage_val = latest_data['voltage'][2]
+                self.status_label.setText(
+                    f"Device: {device_name} | "
+                    f"Time: {time_elapsed:.1f}s | "
+                    f"Current: {current_val*1e6:.2f} µA | "
+                    f"Voltage: {voltage_val:.1f} V"
+                )
+                
+                # Update the voltage plots
+                for v_plot in self.voltage_plots:
+                    v_plot.update(
+                        new_reading=latest_data['voltage'], 
+                        time_elapsed=time_elapsed
+                    )
+                
+                # Update the current plots
+                for c_plot in self.current_plots:
+                    c_plot.update(
+                        new_reading=latest_data['current'], 
+                        time_elapsed=time_elapsed
+                    )
+        
+        # Redraw the canvases
+        self.current_plots_widget.draw()
+        self.voltage_plots_widget.draw()
+    
+    def toggle_pause(self):
+        """Toggle pause state of the measurements"""
+        self.paused = not self.paused
+        if self.paused:
+            self.pause_button.setText("Resume")
+            self.status_label.setText("PAUSED - " + self.status_label.text())
+        else:
+            self.pause_button.setText("Pause")
+    
+    def stop_measurements(self):
+        """Stop the measurement process"""
+        reply = QMessageBox.question(
+            self, 'Confirm Stop', 
+            'Are you sure you want to stop measurements?', 
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No
+        )
+        
+        if reply == QMessageBox.Yes:
+            self.controller.stop_event.set()
+            self.close()
+    
+    def closeEvent(self, event):
+        """Handle window close event"""
+        if not self.controller.stop_event.is_set():
+            reply = QMessageBox.question(
+                self, 'Confirm Exit', 
+                'Measurements are still running. Are you sure you want to exit?', 
+                QMessageBox.Yes | QMessageBox.No, QMessageBox.No
+            )
+            
+            if reply == QMessageBox.No:
+                event.ignore()
+                return
+        
+        self.controller.stop_event.set()
+        self.update_timer.stop()
+        event.accept()
 
 
 class TestController:
@@ -972,11 +1095,12 @@ class TestController:
 
         # # Get device names from user
         # self.get_device_names()
-        
+        self.multiplexer.disarm()
+        time.sleep(1)
         self.device_names = [None, "GT02"]
         self.multiplexer.arm()
 
-        self.multiplexer.discharge(0)
+        # self.multiplexer.discharge(0)
 
         # Filter out empty names (unused positions)
         self.connected_devices = [
@@ -1036,8 +1160,8 @@ class TestController:
             self.breakdown_test = True
             self.power_supply.current_limit_set(7e-3)
             self.power_supply.charging_curve = [
-                [0, 0, 0],
-                [850, 2, 500]
+                [0, 0, 0,0],
+                [850, 2, 500,0]
             ]
             # multimeter poll rate
             print(Fore.LIGHTMAGENTA_EX + "\n"*1 + "=" * 50 + "\n"
@@ -1625,7 +1749,7 @@ class StabilityManager:
 
     def add_measurement(self, current, timestamp):
         """Add new current measurement with timestamp"""
-        self.measurements.append((current, timestamp))
+        self.measurements.append((current*1e3, timestamp)) # current processed in mA
         self._trim_old_measurements(timestamp)
 
     def _trim_old_measurements(self, current_time):
@@ -1821,90 +1945,62 @@ class CSVTestController:
 
 
 def main():
-    # Create a thread-safe queue for measurement data.
+    # Create Qt application
+    app = QApplication([])
+    
+    # Create a thread-safe queue for measurement data
     measurement_queue = queue.Queue()
 
-    # Create an Event to signal shutdown.
+    # Create an Event to signal shutdown
     stop_event = threading.Event()
 
-    # Initialize the controller and GUI.
+    # Initialize the controller
     try:
         controller = TestController(stop_event)
     except serial.SerialException:
         input("[ERROR] One or more serial devices not present. Press enter to run with simulated data:\n>>>")
-        controller = CSVTestController(
-            csv_filename="250226_TP01,07_Ageing.csv")
+        controller = CSVTestController(csv_filename="250226_TP01,07_Ageing.csv")
+    
+    # Initialize the GUI
     gui = DataGUI(controller)
-    overwatch = Overwatch(controller)
-
-    # Measurement thread function.
-
+    gui.show()
+    
+    # Measurement thread function
     def measurement_thread():
         while not stop_event.is_set():
             try:
-                # Perform one measurement cycle.
+                # Perform one measurement cycle
                 if controller.test_loop():
-                    # Package the latest measurement data.
+                    # Package the latest measurement data
                     measurement_data = {
-                        # (device_name, elapsed_time, dmm1)
                         'current': controller.current_reading,
-                        # (device_name, elapsed_time, ps_voltage)
                         'voltage': controller.voltage_reading
                     }
-                    measurement_queue.put(measurement_data)
-                    overwatch.data_in(measurement_data)
+                    # Put data in queue for GUI thread
+                    gui.measurement_queue.put(measurement_data)
             except Exception as e:
                 logging.error("Error in measurement thread: %s", e)
-            # Sleep briefly to avoid overwhelming the instruments.
+            # Sleep briefly to avoid overwhelming the instruments
             time.sleep(controller.measurement_interval)
-
-    # Start the measurement thread.
+    
+    # Start the measurement thread
     meas_thread = threading.Thread(
-        target=measurement_thread, name="MeasurementThread", daemon=True)
+        target=measurement_thread, 
+        name="MeasurementThread", 
+        daemon=True
+    )
     meas_thread.start()
-
-    # GUI update function to be scheduled in the main thread.
-    def update_gui():
-        latest_data = None
-        if plt.fignum_exists(gui.fig.number):
-            # Drain the queue to get the most recent data.
-            while not measurement_queue.empty():
-                latest_data = measurement_queue.get()
-                if latest_data is not None:
-                    # Extract elapsed time from the current measurement.
-                    time_elapsed = latest_data['current'][1]
-                    # Update the voltage plots.
-                    for v_plot in gui.voltage_plots:
-                        v_plot.update(
-                            new_reading=latest_data['voltage'], time_elapsed=time_elapsed)
-                    # Update the current plots.
-                    for c_plot in gui.current_plots:
-                        c_plot.update(
-                            new_reading=latest_data['current'], time_elapsed=time_elapsed)
-
-            gui.fig.canvas.draw()
-            gui.fig.canvas.flush_events()
-            # Schedule the next update after 200ms (5 fps).
-            gui.fig.canvas.manager.window.after(200, update_gui)
-        else:
-            logging.info(
-                "GUI window closed; continuing measurements in background.")
-
-    # Schedule the first GUI update.
-    gui.fig.canvas.manager.window.after(200, update_gui)
-
-    # Start the matplotlib main loop.
-    # This call must be in the main thread.
-
-    try:
-        plt.show()
-        while True:
-            time.sleep(1)
-    except KeyboardInterrupt:
-        print("Program interrupted by user (Ctrl+C).")
-        stop_event.set()
-    finally:
-        controller.cleanup()
+    
+    # Start the Qt event loop
+    app_exec = app.exec_()
+    stop_event.set()
+    # Wait for measurement thread to finish
+    meas_thread.join(timeout=1.0)
+    
+    # Cleanup when GUI is closed
+    controller.cleanup()
+    
+    return app_exec
 
 
 if __name__ == "__main__":
