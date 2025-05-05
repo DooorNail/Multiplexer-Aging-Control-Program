@@ -1,4 +1,4 @@
-# 1000018
+# 1000101
 
 """
 ==========  TODO  ==========
@@ -46,11 +46,12 @@ import threading
 import queue
 import os
 import numpy as np
+import pandas as pd
 from colorama import init, Fore, Style
 
 # PyQt5 imports
-from PyQt5.QtWidgets import (QApplication, QMainWindow, QVBoxLayout, QWidget, 
-                            QHBoxLayout, QLabel, QPushButton, QMessageBox)
+from PyQt5.QtWidgets import (QApplication, QMainWindow, QVBoxLayout, QWidget,
+                             QHBoxLayout, QLabel, QPushButton, QMessageBox)
 from PyQt5.QtCore import QTimer, Qt
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
@@ -229,7 +230,7 @@ class PowerSupply:
             [2] Segment duration, this includes the initial ramp (s)
             [3] Whether dynamic voltage should run during this section (0: no  || 1: yes)
             """
-            
+
             # self.charging_curve = [
             #     [0, 0, 0, 0],
             #     [100, 5, 140, 0],
@@ -248,7 +249,7 @@ class PowerSupply:
                 [100, 5, 60, 0],
                 [100, 1, 320, 1]
             ]
-            
+
         else:
             self.charging_curve = charging_curve
 
@@ -438,7 +439,7 @@ class PowerSupply:
         if len(self.charging_curve[self.prgm_index]) >= 4:
             return self.charging_curve[self.prgm_index][3]
         return 0
-    
+
     def get_segment_voltage_setpoint(self):
         return self.charging_curve[self.prgm_index[0]]
 
@@ -848,70 +849,74 @@ class DataGUI(QMainWindow):
         self.controller = controller
         self.setWindowTitle("Multimeter Data Logger")
         self.setGeometry(100, 100, 1200, 800)
-        
+
         # Create main widget and layout
         self.main_widget = QWidget()
         self.setCentralWidget(self.main_widget)
         self.main_layout = QVBoxLayout(self.main_widget)
-        
+
         # Status bar at the top
         self.status_bar = QHBoxLayout()
         self.status_label = QLabel("Initializing...")
         self.status_bar.addWidget(self.status_label)
-        
+
         # Control buttons
         self.control_buttons = QHBoxLayout()
         self.pause_button = QPushButton("Pause")
         self.stop_button = QPushButton("Stop")
         self.control_buttons.addWidget(self.pause_button)
         self.control_buttons.addWidget(self.stop_button)
-        
+
         # Create matplotlib figures and canvases
-        self.fig, ((self.current_ax1, self.current_ax2), 
+        self.fig, ((self.current_ax1, self.current_ax2),
                    (self.voltage_ax1, self.voltage_ax2)) = plt.subplots(2, 2, figsize=(12, 8))
         self.fig.tight_layout(pad=3.0)
-        
+
         # Single canvas for all plots
         self.canvas = FigureCanvas(self.fig)
-        
+
         # Just one navigation toolbar
         self.toolbar = NavigationToolbar(self.canvas, self)
-        
+
         # Add to layout
-        self.main_layout.addWidget(self.toolbar)
-        self.main_layout.addWidget(self.canvas)
-        
         self.main_layout.addLayout(self.control_buttons)
-        
+        self.main_layout.addLayout(self.status_bar)
+        self.main_layout.addWidget(self.canvas)
+        self.main_layout.addWidget(self.toolbar)
+
         # Connect buttons
         self.pause_button.clicked.connect(self.toggle_pause)
         self.stop_button.clicked.connect(self.stop_measurements)
-        
+
         # Setup update timer
         self.update_timer = QTimer()
         self.update_timer.timeout.connect(self.update_plots)
         self.update_timer.start(200)  # Update every 200ms (5fps)
-        
+
         # Data queue for thread-safe communication
         self.measurement_queue = queue.Queue()
-        
+
         # Initialize plots with charging curve data
         computed_curve = self.compute_planned_curve(
             self.controller.power_supply.charging_curve)
-        
+
         self.voltage_plots = [
-            VoltagePlot(self.voltage_ax1, computed_curve, x_max=computed_curve[0][-1]),
-            VoltagePlot(self.voltage_ax2, computed_curve, x_scale=300, is_scaled_plot=True)
+            VoltagePlot(self.voltage_ax1, computed_curve,
+                        x_max=computed_curve[0][-1]),
+            VoltagePlot(self.voltage_ax2, computed_curve,
+                        x_scale=300, is_scaled_plot=True)
         ]
-        
+
         self.current_plots = [
-            CurrentPlot(self.current_ax1, self.controller, x_max=computed_curve[0][-1]),
-            CurrentPlot(self.current_ax2, self.controller, x_scale=300, is_scaled_plot=True)
+            CurrentPlot(self.current_ax1, self.controller,
+                        x_max=computed_curve[0][-1]),
+            CurrentPlot(self.current_ax2, self.controller,
+                        x_scale=300, is_scaled_plot=True)
         ]
-        
+
         # Track pause state
         self.paused = False
-    
+
     def compute_planned_curve(self, charging_curve):
         """
         Convert the 2D charging_curve array into a full time/voltage curve.
@@ -944,18 +949,18 @@ class DataGUI(QMainWindow):
                 voltages.append(final_voltage)
             start_voltage = final_voltage
         return times, voltages
-    
+
     def update_plots(self):
         """Update all plots with the latest data"""
         if self.paused:
             return
-            
+
         # Process all available data from the queue
         while not self.measurement_queue.empty():
             latest_data = self.measurement_queue.get()
             if latest_data is not None:
                 time_elapsed = latest_data['current'][1]
-                
+
                 # Update status label
                 device_name = latest_data['current'][0]
                 current_val = latest_data['current'][2]
@@ -966,16 +971,20 @@ class DataGUI(QMainWindow):
                     f"Current: {current_val*1e6:.2f} µA | "
                     f"Voltage: {voltage_val:.1f} V"
                 )
-                
+
                 # Update plots
-                self.voltage_plots[0].update(latest_data['voltage'], time_elapsed)
-                self.voltage_plots[1].update(latest_data['voltage'], time_elapsed)
-                self.current_plots[0].update(latest_data['current'], time_elapsed)
-                self.current_plots[1].update(latest_data['current'], time_elapsed)
-        
+                self.voltage_plots[0].update(
+                    latest_data['voltage'], time_elapsed)
+                self.voltage_plots[1].update(
+                    latest_data['voltage'], time_elapsed)
+                self.current_plots[0].update(
+                    latest_data['current'], time_elapsed)
+                self.current_plots[1].update(
+                    latest_data['current'], time_elapsed)
+
         # Redraw just once for all plots
         self.canvas.draw()
-    
+
     def toggle_pause(self):
         """Toggle pause state of the measurements"""
         self.paused = not self.paused
@@ -984,32 +993,32 @@ class DataGUI(QMainWindow):
             self.status_label.setText("PAUSED - " + self.status_label.text())
         else:
             self.pause_button.setText("Pause")
-    
+
     def stop_measurements(self):
         """Stop the measurement process"""
         reply = QMessageBox.question(
-            self, 'Confirm Stop', 
-            'Are you sure you want to stop measurements?', 
+            self, 'Confirm Stop',
+            'Are you sure you want to stop measurements?',
             QMessageBox.Yes | QMessageBox.No, QMessageBox.No
         )
-        
+
         if reply == QMessageBox.Yes:
             self.controller.stop_event.set()
             self.close()
-    
+
     def closeEvent(self, event):
         """Handle window close event"""
         if not self.controller.stop_event.is_set():
             reply = QMessageBox.question(
-                self, 'Confirm Exit', 
-                'Measurements are still running. Are you sure you want to exit?', 
+                self, 'Confirm Exit',
+                'Measurements are still running. Are you sure you want to exit?',
                 QMessageBox.Yes | QMessageBox.No, QMessageBox.No
             )
-            
+
             if reply == QMessageBox.No:
                 event.ignore()
                 return
-        
+
         self.controller.stop_event.set()
         self.update_timer.stop()
         event.accept()
@@ -1142,8 +1151,8 @@ class TestController:
             self.breakdown_test = True
             self.power_supply.current_limit_set(7e-3)
             self.power_supply.charging_curve = [
-                [0, 0, 0,0],
-                [850, 2, 500,0]
+                [0, 0, 0, 0],
+                [850, 2, 500, 0]
             ]
             # multimeter poll rate
             print(Fore.LIGHTMAGENTA_EX + "\n"*1 + "=" * 50 + "\n"
@@ -1564,31 +1573,33 @@ class TestController:
         # Add measurement to stability manager
         self.stability_manager.add_measurement(current_value, timestamp)
 
+        instability = self.stability_manager.evaluate_stability()
         # Only evaluate every 60 seconds
         if (now - self.stability_manager.last_voltage_change).total_seconds() < 60:
             return
 
         # Get stability analysis and recommendation
-        analysis = self.stability_manager.evaluate_stability()
         recommendation = self.stability_manager.recommend_voltage_adjustment(
-            analysis)
+            instability)
 
         if recommendation:
             self._execute_voltage_recommendation(recommendation)
 
     def _execute_voltage_recommendation(self, recommendation):
         """Process stability manager's voltage recommendation"""
-        
+
         current_voltage = self.power_supply.read_voltage()
         if current_voltage is None:
-            logging.warning("Could not read current voltage - aborting adjustment")
+            logging.warning(
+                "Could not read current voltage - aborting adjustment")
             return
-        
+
         new_voltage = recommendation['voltage']
         if abs(new_voltage - current_voltage) > 50:  # Safety check
-            logging.error(f"Abnormal voltage change requested: {current_voltage}V to {new_voltage}V")
+            logging.error(
+                f"Abnormal voltage change requested: {current_voltage}V to {new_voltage}V")
             return
-        
+
         action = recommendation['action']
 
         if action == 'increase':
@@ -1715,78 +1726,71 @@ class TestController:
 
 
 class StabilityManager:
-    def __init__(self, controller):
-        self.controller = controller
+    def __init__(self, instability_window=30, power_factor=1.5, minStability=10):
         self.measurements = []
-        self.analysis_window = 60  # seconds of data to analyze
-        self.instability_window = 30  # points for rolling calculation
-        self.power_factor = 1.2
-        self.stability_threshold = 5e-10
-        self.max_instability = 1e-8
+        self.instability_window = instability_window
+        self.power_factor = power_factor
+        self.minStability = minStability
 
-        # State tracking
         self.consecutive_stable = 0
         self.consecutive_unstable = 0
         self.last_voltage_change = None
 
+        self.debugPrint = True
+
     def add_measurement(self, current, timestamp):
         """Add new current measurement with timestamp"""
-        self.measurements.append((current*1e3, timestamp)) # current processed in mA
+        self.measurements.append((current*1e6, timestamp))  # Store in uA
         self._trim_old_measurements(timestamp)
 
-    def _trim_old_measurements(self, current_time):
-        """Remove measurements older than analysis window"""
-        cutoff = current_time - 60
-        self.measurements = [m for m in self.measurements if m[1] > cutoff]
+    def _trim_old_measurements(self):
+        """Keep only recent measurements"""
+        if len(self.measurements) > 3*self.instability_window:
+            self.measurements = self.measurements[-3*self.instability_window:]
 
     def evaluate_stability(self):
-        """Calculate current stability focusing only on current values above the mean"""
-        if len(self.measurements) < 10:  # Minimum data points
+        """Calculate stability using median-based method"""
+        if len(self.measurements) < self.instability_window:
             return None
 
-        currents = np.array([m[0] for m in self.measurements])
+        currents = np.array([m[0] for m in self.measurements])  # in mA
         timestamps = np.array([m[1] for m in self.measurements])
 
-        # Calculate rolling mean
-        rolling_mean = np.convolve(
-            currents,
-            np.ones(self.instability_window)/self.instability_window,
-            mode='valid'
-        )
+        # Rolling median calculation
+        rolling_median = pd.Series(currents).rolling(
+            window=self.instability_window,
+            min_periods=1,
+            center=True
+        ).median().values
 
-        # Only consider points where current > mean
-        above_mean = currents[-len(rolling_mean):] > rolling_mean
-        diffs = currents[-len(rolling_mean):][above_mean] - \
-            rolling_mean[above_mean]
+        # Only consider points above median
+        above_median = currents > rolling_median
+        excess_current = currents[above_median] - rolling_median[above_median]
 
-        if len(diffs) > 0:
-            instability = np.sum(np.abs(diffs) ** self.power_factor)
-        else:
-            instability = 0  # No points above mean
+        # Calculate instability metric
+        instability = np.sum(
+            excess_current ** self.power_factor) if len(excess_current) > 0 else 0
 
-        return {
-            'instability': instability,
-            'is_stable': instability < self.stability_threshold,
-            'current_mean': np.mean(currents[-self.instability_window:]),
-            'current_std': np.std(currents[-self.instability_window:]),
-            'points_above_mean': len(diffs)  # For debugging
-        }
+        if self.debugPrint:
+            print(
+                f"{Style.BRIGHT}{Fore.LIGHTBLACK_EX}[Dynamics] Instability measured at {float(instability):.3g}")
 
-    def recommend_voltage_adjustment(self, analysis):
+        return float(instability)
+
+    def recommend_voltage_adjustment(self, instability):
         """Determine appropriate voltage change based on stability analysis"""
-        if analysis is None:
+        if instability is None:
             return None
 
-        if analysis['is_stable']:
+        if instability < self.minStability:
             self.consecutive_stable += 1
             self.consecutive_unstable = 0
 
             # Calculate adaptive voltage increment (2-10V linear scale)
             stability_ratio = 1 - \
-                (analysis['instability'] / self.max_instability)
+                (instability / self.minStability)
             increment = 2 + 8 * max(0, min(1, stability_ratio))
 
-            
             return {
                 'action': 'increase',
                 'voltage': min(self.controller.power_supply.voltage_setpoint + increment, 850),
@@ -1929,7 +1933,7 @@ class CSVTestController:
 def main():
     # Create Qt application
     app = QApplication([])
-    
+
     # Create a thread-safe queue for measurement data
     measurement_queue = queue.Queue()
 
@@ -1941,12 +1945,13 @@ def main():
         controller = TestController(stop_event)
     except serial.SerialException:
         input("[ERROR] One or more serial devices not present. Press enter to run with simulated data:\n>>>")
-        controller = CSVTestController(csv_filename="250226_TP01,07_Ageing.csv")
-    
+        controller = CSVTestController(
+            csv_filename="250226_TP01,07_Ageing.csv")
+
     # Initialize the GUI
     gui = DataGUI(controller)
     gui.show()
-    
+
     # Measurement thread function
     def measurement_thread():
         while not stop_event.is_set():
@@ -1964,24 +1969,24 @@ def main():
                 logging.error("Error in measurement thread: %s", e)
             # Sleep briefly to avoid overwhelming the instruments
             time.sleep(controller.measurement_interval)
-    
+
     # Start the measurement thread
     meas_thread = threading.Thread(
-        target=measurement_thread, 
-        name="MeasurementThread", 
+        target=measurement_thread,
+        name="MeasurementThread",
         daemon=True
     )
     meas_thread.start()
-    
+
     # Start the Qt event loop
     app_exec = app.exec_()
     stop_event.set()
     # Wait for measurement thread to finish
     meas_thread.join(timeout=1.0)
-    
+
     # Cleanup when GUI is closed
     controller.cleanup()
-    
+
     return app_exec
 
 
