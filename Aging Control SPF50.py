@@ -1,4 +1,4 @@
-# 1000015
+# 1000102
 
 """
 ==========  TODO  ==========
@@ -18,11 +18,16 @@ Breakdown or aging?
     --> Voltage and time?
     --> bad devices should be identified and remove if affecting the other ones
 
-    Breakdown options:
-    - Max voltage
-    - Ramp rate
-    - threshold current
-    + increase multimeter read rate?
+During Group hold:
+    if current is > 80% of limit for >50% of last 60 seconds.
+        set voltage to current voltage - 15V (minimum 15V)
+        loop through each individual sample in order of suspiciousness (run stability calculation on the end of the individual ramp)
+        wait 15s, record current.
+        remove the device with the highest current 
+        continue
+
+
+
     
 Automatic port selection
 
@@ -32,7 +37,6 @@ Automatic port selection
 
 import datetime
 import time
-import matplotlib.pyplot as plt
 import pyvisa as visa
 import serial
 import io
@@ -42,7 +46,16 @@ import threading
 import queue
 import os
 import numpy as np
+import pandas as pd
 from colorama import init, Fore, Style
+
+# PyQt5 imports
+from PyQt5.QtWidgets import (QApplication, QMainWindow, QVBoxLayout, QWidget,
+                             QHBoxLayout, QLabel, QPushButton, QMessageBox)
+from PyQt5.QtCore import QTimer, Qt
+from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
+from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
+import matplotlib.pyplot as plt
 
 # Initialize colorama
 init(autoreset=True)
@@ -185,7 +198,12 @@ class TemperatureHumiditySensor:
                         humidity = int(lines[3][3:7], 16) / 200.0
                         return temperature, humidity
             except Exception as e:
-                logging.error("Error reading temperature/humidity: %s", e)
+                logging.error("Error reading temperature/humidity: %s", e)##            self.charging_curve = [
+##                [0, 0, 0, 0],
+##                [520, 2, 300, 0],
+##                [520, 0.2, 7200, 1]
+##            ]
+
         return None
 
 
@@ -209,47 +227,34 @@ class PowerSupply:
         self.sequence_complete = False
 
         if charging_curve is None:
-            # self.charging_curve = [
-            #     [0, 0, 0],
-            #     [100, 5, 140],
-            #     [200, 5, 140],
-            #     [250, 2, 240],
-            #     [300, 2, 240],
-            #     [350, 1, 290],
-            #     [400, 1, 350],
-            #     [450, 0.75, 360],
-            #     [500, 0.5, 400],
-            #     [520, 0.1, 600]
-            # ]
-            # self.charging_curve = [
-            #     [0, 0, 0],
-            #     [10, 1, 15],
-            #     [20, 1, 15],
-            #     [50, 2, 40]
-            #     # [150, 5, 40],
-            #     # [300, 2, 120]
-            # ]
+
+            """ 
+            CHARGING CURVE has 4 parameters for each stage:
+            [0] Voltage Setpoint
+            [1] Ramprate (V/s)
+            [2] Segment duration, this includes the initial ramp (s)
+            [3] Whether dynamic voltage should run during this section (0: no  || 1: yes)
+            """
+
             self.charging_curve = [
-                [0, 0, 0],
-                [100, 5, 140],
-                [200, 2, 140],
-                [250, 2, 240],
-                [300, 2, 240],
-                [350, 1, 290],
-                [400, 1, 350],
-                [450, 0.75, 360],
-                [500, 0.5, 400],
-                [520, 0.1, 900]
+                [0, 0, 0, 0],
+                [100, 5, 140, 0],
+                [200, 2, 140, 0],
+                [250, 2, 240, 0],
+                [300, 2, 240, 0],
+                [350, 1, 290, 0],
+                [400, 1, 350, 0],
+                [450, 0.75, 360, 0],
+                [500, 0.5, 400, 0],
+                [520, 0.1, 300, 0],
+                [520, 1, 900, 0]
             ]
-            # self.charging_curve = [
-            #     [0, 0, 0],
-            #     [10, 10, 15],
-            #     [15, 10, 15],
-            #     [20, 10, 15],
-            #     [25, 10, 15],
-            #     [30, 10, 15],
-            #     [35, 10, 15]
-            # ]
+##            self.charging_curve = [
+##                [0, 0, 0, 0],
+##                [520, 2, 300, 0],
+##                [520, 0.2, 7200, 1]
+##            ]
+
         else:
             self.charging_curve = charging_curve
 
@@ -399,15 +404,15 @@ class PowerSupply:
             # print(f"[PS READ] {datetime.datetime.now()}")
             self.send_no_check(">M0?")
             # print(f"[PS READ] {datetime.datetime.now()}")
-            
+
             for i in range(5):
                 response = self.serial_read_line()
                 if "M0" in response:
-                    return float(response.replace("M0:", ""))  
+                    return float(response.replace("M0:", ""))
 
         except Exception as e:
             logging.error("Error reading voltage: %s", e)
-        
+
         return None
 
     def startup(self):
@@ -434,6 +439,14 @@ class PowerSupply:
         # self.segment_start_time = datetime.datetime.now()
         self.voltage_setpoint_set(0)
         self.run_program()
+
+    def is_segment_dynamic(self):
+        if len(self.charging_curve[self.prgm_index]) >= 4:
+            return self.charging_curve[self.prgm_index][3]
+        return 0
+
+    def get_segment_voltage_setpoint(self):
+        return self.charging_curve[self.prgm_index[0]]
 
     def run_program(self):
         """
@@ -682,7 +695,6 @@ class CurrentPlot:
 
             self.realtime_line.set_label(
                 f"{device_name}: {self.rt_currents[-1]:.4g}uA")
-            # self.realtime_line.set_label(f"hecing")
 
         else:
             # Handle full plot (multiple devices)
@@ -762,7 +774,7 @@ class VoltagePlot:
         device_name, time_val, voltage_val = new_reading
 
         if voltage_val is None:
-           return  
+            return
 
         if self.is_scaled_plot:
             # Handle scaled plot
@@ -836,24 +848,79 @@ class VoltagePlot:
         self.ax.legend()
 
 
-class DataGUI:
+class DataGUI(QMainWindow):
     def __init__(self, controller):
+        super().__init__()
         self.controller = controller
-        # Create figure with two subplots.
-        self.fig, axs = plt.subplots(2, 2, figsize=(20, 14))
-        ax1, ax2, ax3, ax4 = axs.ravel()
+        self.setWindowTitle("Multimeter Data Logger")
+        self.setGeometry(100, 100, 1200, 800)
 
-        # Plot 2: Charging curve and realtime PS voltage.
-        # Precompute the planned charging curve.
+        # Create main widget and layout
+        self.main_widget = QWidget()
+        self.setCentralWidget(self.main_widget)
+        self.main_layout = QVBoxLayout(self.main_widget)
 
+        # Status bar at the top
+        self.status_bar = QHBoxLayout()
+        self.status_label = QLabel("Initializing...")
+        self.status_bar.addWidget(self.status_label)
+
+        # Control buttons
+        self.control_buttons = QHBoxLayout()
+        self.pause_button = QPushButton("Pause")
+        self.stop_button = QPushButton("Stop")
+        self.control_buttons.addWidget(self.pause_button)
+        self.control_buttons.addWidget(self.stop_button)
+
+        # Create matplotlib figures and canvases
+        self.fig, ((self.current_ax1, self.current_ax2),
+                   (self.voltage_ax1, self.voltage_ax2)) = plt.subplots(2, 2, figsize=(12, 8))
+        self.fig.tight_layout(pad=3.0)
+
+        # Single canvas for all plots
+        self.canvas = FigureCanvas(self.fig)
+
+        # Just one navigation toolbar
+        self.toolbar = NavigationToolbar(self.canvas, self)
+
+        # Add to layout
+        self.main_layout.addLayout(self.control_buttons)
+        self.main_layout.addLayout(self.status_bar)
+        self.main_layout.addWidget(self.canvas)
+        self.main_layout.addWidget(self.toolbar)
+
+        # Connect buttons
+        self.pause_button.clicked.connect(self.toggle_pause)
+        self.stop_button.clicked.connect(self.stop_measurements)
+
+        # Setup update timer
+        self.update_timer = QTimer()
+        self.update_timer.timeout.connect(self.update_plots)
+        self.update_timer.start(200)  # Update every 200ms (5fps)
+
+        # Data queue for thread-safe communication
+        self.measurement_queue = queue.Queue()
+
+        # Initialize plots with charging curve data
         computed_curve = self.compute_planned_curve(
             self.controller.power_supply.charging_curve)
 
-        self.voltage_plots = [VoltagePlot(ax3, computed_curve, x_max=computed_curve[0][-1]),
-                              VoltagePlot(ax4, computed_curve, x_scale=300, is_scaled_plot=True)]
+        self.voltage_plots = [
+            VoltagePlot(self.voltage_ax1, computed_curve,
+                        x_max=computed_curve[0][-1]),
+            VoltagePlot(self.voltage_ax2, computed_curve,
+                        x_scale=300, is_scaled_plot=True)
+        ]
 
-        self.current_plots = [CurrentPlot(ax1, self.controller, x_max=computed_curve[0][-1]),
-                              CurrentPlot(ax2, self.controller, x_scale=300, is_scaled_plot=True)]
+        self.current_plots = [
+            CurrentPlot(self.current_ax1, self.controller,
+                        x_max=computed_curve[0][-1]),
+            CurrentPlot(self.current_ax2, self.controller,
+                        x_scale=300, is_scaled_plot=True)
+        ]
+
+        # Track pause state
+        self.paused = False
 
     def compute_planned_curve(self, charging_curve):
         """
@@ -866,7 +933,7 @@ class DataGUI:
         current_time = 0
         start_voltage = 0
         for seg in charging_curve:
-            final_voltage, ramp_rate, seg_total_time = seg
+            final_voltage, ramp_rate, seg_total_time, dyn = seg
             ramp_duration = (final_voltage - start_voltage) / \
                 ramp_rate if ramp_rate != 0 else 0
             plateau_duration = seg_total_time - ramp_duration
@@ -889,25 +956,77 @@ class DataGUI:
         return times, voltages
 
     def update_plots(self):
-        """
-        Update both subplots with the latest data.
-        """
-        try:
+        """Update all plots with the latest data"""
+        if self.paused:
+            return
 
-            # time_elapsed = (datetime.datetime.now() - self.controller.test_start_time).total_seconds()
-            time_elapsed = self.controller.current_reading[0]
-            for v_plot in self.voltage_plots:
-                v_plot.update(
-                    new_reading=self.controller.voltage_reading, time_elapsed=time_elapsed)
+        # Process all available data from the queue
+        while not self.measurement_queue.empty():
+            latest_data = self.measurement_queue.get()
+            if latest_data is not None:
+                time_elapsed = latest_data['current'][1]
 
-            for c_plot in self.current_plots:
-                c_plot.update(
-                    new_reading=self.controller.current_reading, time_elapsed=time_elapsed)
+                # Update status label
+                device_name = latest_data['current'][0]
+                current_val = latest_data['current'][2]
+                voltage_val = latest_data['voltage'][2]
+                self.status_label.setText(
+                    f"Device: {device_name} | "
+                    f"Time: {time_elapsed:.1f}s | "
+                    f"Current: {current_val*1e6:.2f} µA | "
+                    f"Voltage: {voltage_val:.1f} V"
+                )
 
-            self.fig.canvas.draw()
-            self.fig.canvas.flush_events()
-        except Exception as e:
-            logging.error("Error updating : %s", e)
+                # Update plots
+                self.voltage_plots[0].update(
+                    latest_data['voltage'], time_elapsed)
+                self.voltage_plots[1].update(
+                    latest_data['voltage'], time_elapsed)
+                self.current_plots[0].update(
+                    latest_data['current'], time_elapsed)
+                self.current_plots[1].update(
+                    latest_data['current'], time_elapsed)
+
+        # Redraw just once for all plots
+        self.canvas.draw()
+
+    def toggle_pause(self):
+        """Toggle pause state of the measurements"""
+        self.paused = not self.paused
+        if self.paused:
+            self.pause_button.setText("Resume")
+            self.status_label.setText("PAUSED - " + self.status_label.text())
+        else:
+            self.pause_button.setText("Pause")
+
+    def stop_measurements(self):
+        """Stop the measurement process"""
+        reply = QMessageBox.question(
+            self, 'Confirm Stop',
+            'Are you sure you want to stop measurements?',
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No
+        )
+
+        if reply == QMessageBox.Yes:
+            self.controller.stop_event.set()
+            self.close()
+
+    def closeEvent(self, event):
+        """Handle window close event"""
+        if not self.controller.stop_event.is_set():
+            reply = QMessageBox.question(
+                self, 'Confirm Exit',
+                'Measurements are still running. Are you sure you want to exit?',
+                QMessageBox.Yes | QMessageBox.No, QMessageBox.No
+            )
+
+            if reply == QMessageBox.No:
+                event.ignore()
+                return
+
+        self.controller.stop_event.set()
+        self.update_timer.stop()
+        event.accept()
 
 
 class TestController:
@@ -925,6 +1044,10 @@ class TestController:
 
         self.breakdown_test = False
         self.end_test = False
+
+        self.stability_manager = StabilityManager(self)
+
+        self.dynamic_voltage_control = False
 
         # Initialize the temperature/humidity sensor
         # self.sensor = TemperatureHumiditySensor(port='COM5', baudrate=4800)
@@ -968,6 +1091,11 @@ class TestController:
 
         # Get device names from user
         self.get_device_names()
+        
+##        self.multiplexer.disarm()
+##        time.sleep(1)
+##        self.device_names = [None, "GT02"]
+##        self.multiplexer.arm()
 
         self.multiplexer.discharge(0)
 
@@ -1005,7 +1133,7 @@ class TestController:
 
         charging_curve_duration = 0
         for seg in self.power_supply.charging_curve:
-            final_voltage, ramp_rate, seg_total_time = seg
+            final_voltage, ramp_rate, seg_total_time, dyn = seg
             charging_curve_duration += seg_total_time
 
         print(Fore.CYAN + "\n"*5 + "=" * 50 + "\n"
@@ -1029,8 +1157,8 @@ class TestController:
             self.breakdown_test = True
             self.power_supply.current_limit_set(7e-3)
             self.power_supply.charging_curve = [
-                [0, 0, 0],
-                [850, 2, 500]
+                [0, 0, 0, 0],
+                [850, 2, 500, 0]
             ]
             # multimeter poll rate
             print(Fore.LIGHTMAGENTA_EX + "\n"*1 + "=" * 50 + "\n"
@@ -1364,10 +1492,11 @@ class TestController:
 
     def test_loop(self):
         """Do one measurement cycle for the current device."""
+        now = datetime.datetime.now()
         if self.current_device_idx is None:
             self.start_next_device_test()
         elif self.current_device_idx == 999:  # group hold
-            elapsed = (datetime.datetime.now() -
+            elapsed = (now -
                        self.test_start_time).total_seconds()
             if elapsed > self.hold_duration:
                 self.power_supply.off()
@@ -1385,7 +1514,19 @@ class TestController:
                 self.finish_device_test(self.current_device_idx)
                 self.start_next_device_test()
 
-        return self.perform_measurement()
+        measurementSuccess = self.perform_measurement()
+
+        try:
+            
+            if measurementSuccess and self.dynamic_voltage_control:
+                if self.power_supply.is_segment_dynamic():
+                    self._run_dynamic_control()
+        except Exception as e:
+            logging.error("Error During dynamic control: %s", e)
+
+
+
+        return measurementSuccess
 
     def perform_measurement(self):
         current_value = self.current_multimeter.read_value()
@@ -1433,6 +1574,65 @@ class TestController:
             logging.error("Error converting measurement values: %s", e)
 
         return False
+
+    def _run_dynamic_control(self):
+        """Execute one cycle of dynamic voltage control"""
+        now = datetime.datetime.now()
+
+        current_value = self.current_reading[2]
+        timestamp = self.current_reading[1]
+
+        # Add measurement to stability manager
+        self.stability_manager.add_measurement(current_value, timestamp)
+
+        instability = self.stability_manager.evaluate_stability()
+        # Only evaluate every 60 seconds
+        if (now - self.stability_manager.last_voltage_change).total_seconds() < 60:
+            return
+
+        # Get stability analysis and recommendation
+        recommendation = self.stability_manager.recommend_voltage_adjustment(
+            instability)
+
+        if recommendation:
+            self._execute_voltage_recommendation(recommendation)
+
+    def _execute_voltage_recommendation(self, recommendation):
+        """Process stability manager's voltage recommendation"""
+
+        if "voltage" in recommendation.keys():
+            try:
+                current_voltage = self.power_supply.read_voltage()
+                if current_voltage is None:
+                    logging.warning(
+                        "Could not read current voltage - aborting adjustment")
+                    return
+
+                new_voltage = recommendation['voltage']
+                if abs(new_voltage - current_voltage) > 50:  # Safety check
+                    logging.error(
+                        f"Abnormal voltage change requested: {current_voltage}V to {new_voltage}V")
+                    return
+            except Exception as e:
+                logging.error("Error checking voltage increase in recommendation: %s", e)
+        
+
+        action = recommendation['action']
+
+        if action == 'increase':
+            
+            print(
+                f"[Dynamic] Increasing voltage to {recommendation['voltage']}V")
+            self.power_supply.voltage_setpoint_set(recommendation['voltage'])
+            self.stability_manager.current_voltage = recommendation['voltage']
+
+        elif action == 'decrease':
+            print(
+                f"[Dynamic] Decreasing voltage to {recommendation['voltage']}V")
+            self.power_supply.voltage_setpoint_set(recommendation['voltage'])
+            self.stability_manager.current_voltage = recommendation['voltage']
+
+        self.stability_manager.last_voltage_change = datetime.datetime.now()
 
     def finish_device_test(self, device_idx):
         """Clean up after testing a device."""
@@ -1499,6 +1699,7 @@ class TestController:
         time.sleep(5)  # Settling time
 
         self.test_start_time = datetime.datetime.now()
+        self.stability_manager.reset_for_new_device()
         self.power_supply.restart_program()
         self.current_multimeter.read_value(clear_extra=True)
 
@@ -1540,6 +1741,102 @@ class TestController:
         except Exception as e:
             logging.error("Error logging buffer to file: %s", e)
         print("Cleanup complete. Program terminated.")
+
+
+class StabilityManager:
+    def __init__(self, controller, instability_window=30, power_factor=1.5, minStability=10):
+        self.measurements = []
+        self.controller = controller
+        self.instability_window = instability_window
+        self.power_factor = power_factor
+        self.minStability = minStability
+
+        self.consecutive_stable = 0
+        self.consecutive_unstable = 0
+        self.last_voltage_change = None
+
+        self.debugPrint = True
+
+    def add_measurement(self, current, timestamp):
+        """Add new current measurement with timestamp"""
+        self.measurements.append((current*1e6, timestamp))  # Store in uA
+        self._trim_old_measurements()
+
+    def _trim_old_measurements(self):
+        """Keep only recent measurements"""
+##        print(self.instability_window)
+        if len(self.measurements) > self.instability_window*8:
+            self.measurements = self.measurements[self.instability_window*-8:]
+
+    def evaluate_stability(self):
+        """Calculate stability using median-based method"""
+        if len(self.measurements) < self.instability_window:
+            return None
+
+        currents = np.array([m[0] for m in self.measurements])  # in mA
+        timestamps = np.array([m[1] for m in self.measurements])
+
+        # Rolling median calculation
+        rolling_median = pd.Series(currents).rolling(
+            window=self.instability_window,
+            min_periods=1,
+            center=True
+        ).median().values
+
+        # Only consider points above median
+        above_median = currents > rolling_median
+        excess_current = currents[above_median] - rolling_median[above_median]
+
+        # Calculate instability metric
+        instability = np.sum(
+            excess_current ** self.power_factor) if len(excess_current) > 0 else 0
+
+        if self.debugPrint:
+            print(
+                f"{Style.BRIGHT}{Fore.LIGHTBLACK_EX}[Dynamics] Instability measured at {float(instability):.3g}")
+
+        return float(instability)
+
+    def recommend_voltage_adjustment(self, instability):
+        """Determine appropriate voltage change based on stability analysis"""
+        if instability is None:
+            return None
+
+        if instability < self.minStability:
+            self.consecutive_stable += 1
+            self.consecutive_unstable = 0
+
+            # Calculate adaptive voltage increment (2-10V linear scale)
+            stability_ratio = 1 - \
+                (instability / self.minStability)
+            increment = 0.5 + 3 * max(0, min(1, stability_ratio))
+
+            return {
+                'action': 'increase',
+                'voltage': min(self.controller.power_supply.voltage_setpoint + increment, 850),
+##                'increment': increment
+            }
+        else:
+            self.consecutive_unstable += 1
+            self.consecutive_stable = 0
+
+            if self.consecutive_unstable >= 8:
+                return {
+                    'action': 'decrease',
+                    'voltage': max(self.controller.power_supply.voltage_setpoint - 10, 0),
+                    'reason': 'persistent_instability'
+                }
+            return {
+                'action': 'maintain',
+                'reason': 'unstable_reading'
+            }
+
+    def reset_for_new_device(self):
+        """Clear state when starting a new device"""
+        self.measurements = []
+        self.consecutive_stable = 0
+        self.consecutive_unstable = 0
+        self.last_voltage_change = datetime.datetime.now()
 
 
 class Overwatch:
@@ -1654,91 +1951,66 @@ class CSVTestController:
 
 
 def main():
-    # Create a thread-safe queue for measurement data.
+    # Create Qt application
+    app = QApplication([])
+
+    # Create a thread-safe queue for measurement data
     measurement_queue = queue.Queue()
 
-    # Create an Event to signal shutdown.
+    # Create an Event to signal shutdown
     stop_event = threading.Event()
 
-    # Initialize the controller and GUI.
+    # Initialize the controller
     try:
         controller = TestController(stop_event)
     except serial.SerialException:
         input("[ERROR] One or more serial devices not present. Press enter to run with simulated data:\n>>>")
         controller = CSVTestController(
             csv_filename="250226_TP01,07_Ageing.csv")
-    gui = DataGUI(controller)
+
     overwatch = Overwatch(controller)
 
-    # Measurement thread function.
+    # Initialize the GUI
+    gui = DataGUI(controller)
+    gui.show()
 
+    # Measurement thread function
     def measurement_thread():
         while not stop_event.is_set():
             try:
-                # Perform one measurement cycle.
+                # Perform one measurement cycle
                 if controller.test_loop():
-                    # Package the latest measurement data.
+                    # Package the latest measurement data
                     measurement_data = {
-                        # (device_name, elapsed_time, dmm1)
                         'current': controller.current_reading,
-                        # (device_name, elapsed_time, ps_voltage)
                         'voltage': controller.voltage_reading
                     }
-                    measurement_queue.put(measurement_data)
+                    # Put data in queue for GUI thread
+                    gui.measurement_queue.put(measurement_data)
                     overwatch.data_in(measurement_data)
             except Exception as e:
                 logging.error("Error in measurement thread: %s", e)
-            # Sleep briefly to avoid overwhelming the instruments.
+            # Sleep briefly to avoid overwhelming the instruments
             time.sleep(controller.measurement_interval)
 
-    # Start the measurement thread.
+    # Start the measurement thread
     meas_thread = threading.Thread(
-        target=measurement_thread, name="MeasurementThread", daemon=True)
+        target=measurement_thread,
+        name="MeasurementThread",
+        daemon=True
+    )
     meas_thread.start()
 
-    # GUI update function to be scheduled in the main thread.
-    def update_gui():
-        latest_data = None
-        if plt.fignum_exists(gui.fig.number):
-            # Drain the queue to get the most recent data.
-            while not measurement_queue.empty():
-                latest_data = measurement_queue.get()
-                if latest_data is not None:
-                    # Extract elapsed time from the current measurement.
-                    time_elapsed = latest_data['current'][1]
-                    # Update the voltage plots.
-                    for v_plot in gui.voltage_plots:
-                        v_plot.update(
-                            new_reading=latest_data['voltage'], time_elapsed=time_elapsed)
-                    # Update the current plots.
-                    for c_plot in gui.current_plots:
-                        c_plot.update(
-                            new_reading=latest_data['current'], time_elapsed=time_elapsed)
-
-            gui.fig.canvas.draw()
-            gui.fig.canvas.flush_events()
-            # Schedule the next update after 200ms (5 fps).
-            gui.fig.canvas.manager.window.after(200, update_gui)
-        else:
-            logging.info(
-                "GUI window closed; continuing measurements in background.")
-
-    # Schedule the first GUI update.
-    gui.fig.canvas.manager.window.after(200, update_gui)
-
-    # Start the matplotlib main loop.
-    # This call must be in the main thread.
-
     try:
-        plt.show()
-        while True:
-            time.sleep(1)
+        app_exec = app.exec_()
     except KeyboardInterrupt:
         print("Program interrupted by user (Ctrl+C).")
-        stop_event.set()
     finally:
+        stop_event.set()
+        meas_thread.join(timeout=1.0)
         controller.cleanup()
 
+    return app_exec
 
 if __name__ == "__main__":
     main()
