@@ -1,4 +1,8 @@
+<<<<<<< HEAD
 # 1000102
+=======
+# 1000101
+>>>>>>> 1923774374b6c66cfb87531d9805eb2bc892c213
 
 """
 ==========  TODO  ==========
@@ -1968,8 +1972,11 @@ def main():
         controller = CSVTestController(
             csv_filename="250226_TP01,07_Ageing.csv")
 
+<<<<<<< HEAD
     overwatch = Overwatch(controller)
 
+=======
+>>>>>>> 1923774374b6c66cfb87531d9805eb2bc892c213
     # Initialize the GUI
     gui = DataGUI(controller)
     gui.show()
@@ -1987,7 +1994,10 @@ def main():
                     }
                     # Put data in queue for GUI thread
                     gui.measurement_queue.put(measurement_data)
+<<<<<<< HEAD
                     overwatch.data_in(measurement_data)
+=======
+>>>>>>> 1923774374b6c66cfb87531d9805eb2bc892c213
             except Exception as e:
                 logging.error("Error in measurement thread: %s", e)
             # Sleep briefly to avoid overwhelming the instruments
