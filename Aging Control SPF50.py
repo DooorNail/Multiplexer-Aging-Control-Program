@@ -198,7 +198,12 @@ class TemperatureHumiditySensor:
                         humidity = int(lines[3][3:7], 16) / 200.0
                         return temperature, humidity
             except Exception as e:
-                logging.error("Error reading temperature/humidity: %s", e)
+                logging.error("Error reading temperature/humidity: %s", e)##            self.charging_curve = [
+##                [0, 0, 0, 0],
+##                [520, 2, 300, 0],
+##                [520, 0.2, 7200, 1]
+##            ]
+
         return None
 
 
@@ -231,24 +236,24 @@ class PowerSupply:
             [3] Whether dynamic voltage should run during this section (0: no  || 1: yes)
             """
 
-            # self.charging_curve = [
-            #     [0, 0, 0, 0],
-            #     [100, 5, 140, 0],
-            #     [200, 2, 140, 0],
-            #     [250, 2, 240, 0],
-            #     [300, 2, 240, 0],
-            #     [350, 1, 290, 0],
-            #     [400, 1, 350, 0],
-            #     [450, 0.75, 360, 0],
-            #     [500, 0.5, 400, 0],
-            #     [520, 0.1, 300, 0],
-            #     [520, 1, 600, 1]
-            # ]
             self.charging_curve = [
                 [0, 0, 0, 0],
-                [100, 5, 60, 0],
-                [100, 1, 320, 1]
+                [100, 5, 140, 0],
+                [200, 2, 140, 0],
+                [250, 2, 240, 0],
+                [300, 2, 240, 0],
+                [350, 1, 290, 0],
+                [400, 1, 350, 0],
+                [450, 0.75, 360, 0],
+                [500, 0.5, 400, 0],
+                [520, 0.1, 300, 0],
+                [520, 1, 900, 0]
             ]
+##            self.charging_curve = [
+##                [0, 0, 0, 0],
+##                [520, 2, 300, 0],
+##                [520, 0.2, 7200, 1]
+##            ]
 
         else:
             self.charging_curve = charging_curve
@@ -1042,7 +1047,7 @@ class TestController:
 
         self.stability_manager = StabilityManager(self)
 
-        self.dynamic_voltage_control = True
+        self.dynamic_voltage_control = False
 
         # Initialize the temperature/humidity sensor
         # self.sensor = TemperatureHumiditySensor(port='COM5', baudrate=4800)
@@ -1075,23 +1080,24 @@ class TestController:
         self.hold_current = 0.5e-3
         self.hold_duration = 12 * 60 * 60  # time to hold the group at voltage in s
 
-        # self.run_self_test()
+        self.run_self_test()
 
-        # self.indentify_populated_channels()
+        self.indentify_populated_channels()
 
-        # self.select_program()
+        self.select_program()
 
-        # if not self.connected_devices:
-        #     raise Exception("No devices connected to test.")
+        if not self.connected_devices:
+            raise Exception("No devices connected to test.")
 
-        # # Get device names from user
-        # self.get_device_names()
-        self.multiplexer.disarm()
-        time.sleep(1)
-        self.device_names = [None, "GT02"]
-        self.multiplexer.arm()
+        # Get device names from user
+        self.get_device_names()
+        
+##        self.multiplexer.disarm()
+##        time.sleep(1)
+##        self.device_names = [None, "GT02"]
+##        self.multiplexer.arm()
 
-        # self.multiplexer.discharge(0)
+        self.multiplexer.discharge(0)
 
         # Filter out empty names (unused positions)
         self.connected_devices = [
@@ -1510,9 +1516,15 @@ class TestController:
 
         measurementSuccess = self.perform_measurement()
 
-        if measurementSuccess and self.dynamic_voltage_control:
-            if self.power_supply.is_segment_dynamic():
-                self._run_dynamic_control()
+        try:
+            
+            if measurementSuccess and self.dynamic_voltage_control:
+                if self.power_supply.is_segment_dynamic():
+                    self._run_dynamic_control()
+        except Exception as e:
+            logging.error("Error During dynamic control: %s", e)
+
+
 
         return measurementSuccess
 
@@ -1588,21 +1600,27 @@ class TestController:
     def _execute_voltage_recommendation(self, recommendation):
         """Process stability manager's voltage recommendation"""
 
-        current_voltage = self.power_supply.read_voltage()
-        if current_voltage is None:
-            logging.warning(
-                "Could not read current voltage - aborting adjustment")
-            return
+        if "voltage" in recommendation.keys():
+            try:
+                current_voltage = self.power_supply.read_voltage()
+                if current_voltage is None:
+                    logging.warning(
+                        "Could not read current voltage - aborting adjustment")
+                    return
 
-        new_voltage = recommendation['voltage']
-        if abs(new_voltage - current_voltage) > 50:  # Safety check
-            logging.error(
-                f"Abnormal voltage change requested: {current_voltage}V to {new_voltage}V")
-            return
+                new_voltage = recommendation['voltage']
+                if abs(new_voltage - current_voltage) > 50:  # Safety check
+                    logging.error(
+                        f"Abnormal voltage change requested: {current_voltage}V to {new_voltage}V")
+                    return
+            except Exception as e:
+                logging.error("Error checking voltage increase in recommendation: %s", e)
+        
 
         action = recommendation['action']
 
         if action == 'increase':
+            
             print(
                 f"[Dynamic] Increasing voltage to {recommendation['voltage']}V")
             self.power_supply.voltage_setpoint_set(recommendation['voltage'])
@@ -1726,8 +1744,9 @@ class TestController:
 
 
 class StabilityManager:
-    def __init__(self, instability_window=30, power_factor=1.5, minStability=10):
+    def __init__(self, controller, instability_window=30, power_factor=1.5, minStability=10):
         self.measurements = []
+        self.controller = controller
         self.instability_window = instability_window
         self.power_factor = power_factor
         self.minStability = minStability
@@ -1741,12 +1760,13 @@ class StabilityManager:
     def add_measurement(self, current, timestamp):
         """Add new current measurement with timestamp"""
         self.measurements.append((current*1e6, timestamp))  # Store in uA
-        self._trim_old_measurements(timestamp)
+        self._trim_old_measurements()
 
     def _trim_old_measurements(self):
         """Keep only recent measurements"""
-        if len(self.measurements) > 3*self.instability_window:
-            self.measurements = self.measurements[-3*self.instability_window:]
+##        print(self.instability_window)
+        if len(self.measurements) > self.instability_window*8:
+            self.measurements = self.measurements[self.instability_window*-8:]
 
     def evaluate_stability(self):
         """Calculate stability using median-based method"""
@@ -1789,18 +1809,18 @@ class StabilityManager:
             # Calculate adaptive voltage increment (2-10V linear scale)
             stability_ratio = 1 - \
                 (instability / self.minStability)
-            increment = 2 + 8 * max(0, min(1, stability_ratio))
+            increment = 0.5 + 3 * max(0, min(1, stability_ratio))
 
             return {
                 'action': 'increase',
                 'voltage': min(self.controller.power_supply.voltage_setpoint + increment, 850),
-                'increment': increment
+##                'increment': increment
             }
         else:
             self.consecutive_unstable += 1
             self.consecutive_stable = 0
 
-            if self.consecutive_unstable >= 5:
+            if self.consecutive_unstable >= 8:
                 return {
                     'action': 'decrease',
                     'voltage': max(self.controller.power_supply.voltage_setpoint - 10, 0),
@@ -1978,17 +1998,16 @@ def main():
     )
     meas_thread.start()
 
-    # Start the Qt event loop
-    app_exec = app.exec_()
-    stop_event.set()
-    # Wait for measurement thread to finish
-    meas_thread.join(timeout=1.0)
-
-    # Cleanup when GUI is closed
-    controller.cleanup()
+    try:
+        app_exec = app.exec_()
+    except KeyboardInterrupt:
+        print("Program interrupted by user (Ctrl+C).")
+    finally:
+        stop_event.set()
+        meas_thread.join(timeout=1.0)
+        controller.cleanup()
 
     return app_exec
-
 
 if __name__ == "__main__":
     main()
