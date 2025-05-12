@@ -1,4 +1,4 @@
-# 1000102
+# 1000103
 
 """
 ==========  TODO  ==========
@@ -247,7 +247,7 @@ class PowerSupply:
                 [450, 0.75, 360, 0],
                 [500, 0.5, 400, 0],
                 [520, 0.1, 300, 0],
-                [520, 1, 900, 0]
+                [520, 1, 3600, 0]
             ]
 ##            self.charging_curve = [
 ##                [0, 0, 0, 0],
@@ -1335,7 +1335,8 @@ class TestController:
         self.device_names = [None] * 8
         # Header
         print(Fore.CYAN + "\n"*5 + "=" * 50 + "\n"
-              + " DEVICE NAMING ".center(50, "~") + "\n"
+            #   + " DEVICE NAMING ".center(50, "~") + "\n"
+              + " DEVICE NAMING LONG-INDI".center(50, "~") + "\n"
               + "=" * 50 + "\n" + Style.RESET_ALL)
 
         print(Fore.YELLOW + "\n[ Enter Device Names ]" + Style.RESET_ALL)
