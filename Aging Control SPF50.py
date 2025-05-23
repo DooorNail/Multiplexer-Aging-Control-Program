@@ -244,9 +244,12 @@ class PowerSupply:
                 [300, 2, 240, 0],
                 [350, 1, 290, 0],
                 [400, 1, 350, 0],
-                [450, 0.75, 360, 0],
+                [420, 0.5, 300, 0],
+                [440, 0.5, 300, 0],
+                [460, 0.5, 300, 0],
+                [480, 0.5, 300, 0],
                 [500, 0.5, 400, 0],
-                [520, 0.1, 300, 0],
+                [520, 0.2, 300, 0],
                 [520, 1, 3600, 0]
             ]
 ##            self.charging_curve = [
@@ -867,9 +870,9 @@ class DataGUI(QMainWindow):
 
         # Control buttons
         self.control_buttons = QHBoxLayout()
-        self.pause_button = QPushButton("Pause")
+        self.skip_button = QPushButton("Skip")
         self.stop_button = QPushButton("Stop")
-        self.control_buttons.addWidget(self.pause_button)
+        self.control_buttons.addWidget(self.skip_button)
         self.control_buttons.addWidget(self.stop_button)
 
         # Create matplotlib figures and canvases
@@ -890,7 +893,7 @@ class DataGUI(QMainWindow):
         self.main_layout.addWidget(self.toolbar)
 
         # Connect buttons
-        self.pause_button.clicked.connect(self.toggle_pause)
+        self.skip_button.clicked.connect(self.toggle_pause)
         self.stop_button.clicked.connect(self.stop_measurements)
 
         # Setup update timer
@@ -993,11 +996,8 @@ class DataGUI(QMainWindow):
     def toggle_pause(self):
         """Toggle pause state of the measurements"""
         self.paused = not self.paused
-        if self.paused:
-            self.pause_button.setText("Resume")
-            self.status_label.setText("PAUSED - " + self.status_label.text())
-        else:
-            self.pause_button.setText("Pause")
+        self.status_label.setText("SKIPPING - " + self.status_label.text())
+
 
     def stop_measurements(self):
         """Stop the measurement process"""
