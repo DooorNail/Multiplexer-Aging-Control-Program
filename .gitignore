@@ -1,3 +1,6 @@
 test.*
 *.csv
 /aging_control_cache
+/Writing
+/Code Refactor
+characterisation.py

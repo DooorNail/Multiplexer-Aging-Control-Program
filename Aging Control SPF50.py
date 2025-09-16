@@ -151,7 +151,7 @@ class Multimeter:
         return None
 
 
-class TemperatureHumiditySensor:
+class TemperatureHumiditySensor: #deprecated, no longer logged in current version
     def __init__(self, port='COM5', baudrate=4800):
         """
         Initialize the temperature/humidity sensor over the specified serial port.
@@ -252,11 +252,6 @@ class PowerSupply:
                 [520, 0.2, 300, 0],
                 [520, 1, 3600, 0]
             ]
-##            self.charging_curve = [
-##                [0, 0, 0, 0],
-##                [520, 2, 300, 0],
-##                [520, 0.2, 7200, 1]
-##            ]
 
         else:
             self.charging_curve = charging_curve
@@ -510,7 +505,10 @@ class Multiplexer:
     def disarm(self):
         """Disarm the multiplexer."""
         self.send_command("DISARM")
-
+        
+    def watchdog_heartbeat(self):
+        self.send_command("BEAT")
+    
     def set_channel(self, channel, state):
         """
         Set a channel to on (1) or off (0).
@@ -556,12 +554,11 @@ class DataLogger:
         Initialize the logger for multiple devices.
         device_names: list of names for each device position (empty string means unused)
         """
-        # self.test_id = test_id
         self.minimum_measurement_count = minimum_measurement_count
         self.data_files = {}
         self.active_device = None
 
-        print(test_type)
+        # print(test_type)
 
         if test_type == "breakdown":
             sub_dir = os.path.join("Breakdown Data", test_id)
@@ -883,7 +880,7 @@ class DataGUI(QMainWindow):
         # Single canvas for all plots
         self.canvas = FigureCanvas(self.fig)
 
-        # Just one navigation toolbar
+        # Navigation toolbar
         self.toolbar = NavigationToolbar(self.canvas, self)
 
         # Add to layout
@@ -893,7 +890,7 @@ class DataGUI(QMainWindow):
         self.main_layout.addWidget(self.toolbar)
 
         # Connect buttons
-        self.skip_button.clicked.connect(self.toggle_pause)
+        self.skip_button.clicked.connect(self.skip_device)
         self.stop_button.clicked.connect(self.stop_measurements)
 
         # Setup update timer
@@ -922,7 +919,7 @@ class DataGUI(QMainWindow):
                         x_scale=300, is_scaled_plot=True)
         ]
 
-        # Track pause state
+        # Track plotting state
         self.paused = False
 
     def compute_planned_curve(self, charging_curve):
@@ -993,7 +990,7 @@ class DataGUI(QMainWindow):
         # Redraw just once for all plots
         self.canvas.draw()
 
-    def toggle_pause(self):
+    def skip_device(self):
         """Toggle pause state of the measurements"""
         self.paused = not self.paused
         self.status_label.setText("SKIPPING - " + self.status_label.text())
@@ -1050,7 +1047,9 @@ class TestController:
         self.dynamic_voltage_control = False
 
         # Initialize the temperature/humidity sensor
+        # Can be added back in later versions for enviromental monitoring
         # self.sensor = TemperatureHumiditySensor(port='COM5', baudrate=4800)
+        
 
         # Initialize VISA resource manager and multimeters
         self.rm = visa.ResourceManager()
@@ -1091,11 +1090,6 @@ class TestController:
 
         # Get device names from user
         self.get_device_names()
-        
-##        self.multiplexer.disarm()
-##        time.sleep(1)
-##        self.device_names = [None, "GT02"]
-##        self.multiplexer.arm()
 
         self.multiplexer.discharge(0)
 
@@ -1150,19 +1144,29 @@ class TestController:
         print(Fore.CYAN + "\n"*5 + "=" * 50 + "\n"
               + " SELECT PROGRAM ".center(50, "~") + "\n"
               + "=" * 50 + Style.RESET_ALL)
-        print(f"{Fore.LIGHTBLACK_EX}type 'breakdown' or [ENTER] for aging\n")
+        print(f"{Fore.LIGHTBLACK_EX}type 'breakdown', 'leakage' or [ENTER] for aging\n")
         response = input(">>> ")
 
-        if response.lower() == "breakdown":
+        if response.lower().startswith("b"):
             self.breakdown_test = True
             self.power_supply.current_limit_set(7e-3)
             self.power_supply.charging_curve = [
                 [0, 0, 0, 0],
                 [850, 2, 500, 0]
             ]
-            # multimeter poll rate
+
             print(Fore.LIGHTMAGENTA_EX + "\n"*1 + "=" * 50 + "\n"
                   + " BREAKDOWN SELECTED ".center(50, "~") + "\n"
+                  + "=" * 50 + Style.RESET_ALL)
+        elif response.lower().startswith("l"):
+            self.power_supply.current_limit_set(1e-3)
+            self.power_supply.charging_curve = [
+                [0, 0, 0, 0],
+                [450, 5, 1000, 0]
+            ]
+
+            print(Fore.LIGHTMAGENTA_EX + "\n"*1 + "=" * 50 + "\n"
+                  + " LEAKAGE CURRENT SELECTED ".center(50, "~") + "\n"
                   + "=" * 50 + Style.RESET_ALL)
         else:
             print(Fore.LIGHTBLUE_EX + "\n"*1 + "=" * 50 + "\n"
@@ -1172,7 +1176,7 @@ class TestController:
     def run_self_test(self):
         """Run comprehensive self-test of all system components."""
 
-        # Test parameters
+        # Self-test parameters
         test_voltage = 15.0  # Voltage for testing
         current_tolerance = 0.2  # 20% tolerance for current measurements
         voltage_tolerance = 0.1  # 10% tolerance for voltage measurements
@@ -1184,7 +1188,6 @@ class TestController:
               + " SELF TEST ".center(50, "~") + "\n"
               + "=" * 50 + Style.RESET_ALL)
 
-        # self.power_supply.current_limit_value
 
         self.current_multimeter.configure_rapid()
         self.current_multimeter.initiate()
@@ -1401,11 +1404,6 @@ class TestController:
                                 f"  {Fore.RED}Error: Channel must be 1-8{Style.RESET_ALL}")
                             continue
 
-                        # if slot_to_modify not in self.connected_devices:
-                        #     print(
-                        #         f"  {Fore.RED}Error: No device in this slot{Style.RESET_ALL}")
-                        #     continue
-
                         new_name = input(
                             f"  {Fore.GREEN}New name for channel {channel_to_modify}{Style.RESET_ALL}: "
                         ).strip()
@@ -1430,7 +1428,6 @@ class TestController:
 
         populated_threshold = 100e-9
 
-        # print(Fore.YELLOW + "\n[ Indentify populated channels ]" + Style.RESET_ALL)
         # Header
         print(Fore.CYAN + "\n"*5 + "=" * 50 + "\n"
               + " INDENTIFY POPULATED CHANNELS ".center(50, "~") + "\n"
@@ -1516,6 +1513,8 @@ class TestController:
                 self.start_next_device_test()
 
         measurementSuccess = self.perform_measurement()
+        
+        
 
         try:
             
@@ -1541,6 +1540,8 @@ class TestController:
         #     sensor_data_str = f"{temperature},{humidity}"
         # else:
             # sensor_data_str = ","
+            
+        self.multiplexer.watchdog_heartbeat()
 
         sensor_data_str = ","
 
@@ -1555,10 +1556,6 @@ class TestController:
         elapsed = (time_now -
                    self.test_start_time).total_seconds()
         try:
-            # self.current_reading = (
-            #     self.device_names[self.current_device_idx], elapsed, float(current_value))
-            # self.voltage_reading = (
-            #     self.device_names[self.current_device_idx], elapsed, ps_voltage)
 
             self.current_reading = (
                 self.logger.get_current_device_name(), elapsed, float(current_value))
@@ -1675,7 +1672,7 @@ class TestController:
                     print(Fore.CYAN + "\n"*5 + "=" * 50 + "\n"
                           + " GROUP HOLD ".center(50, "~") + "\n"
                           + "=" * 50 + "\n" + Style.RESET_ALL)
-                    # print(f"End of tests")  # ---------------
+
                     self.multiplexer.send_command("WA,255")
                     self.power_supply.voltage_ramp_rate_set(1)
                     self.power_supply.voltage_setpoint_set(self.hold_voltage)
@@ -1686,9 +1683,6 @@ class TestController:
                 return
             else:
                 self.current_device_idx = self.connected_devices[current_list_index+1]
-            # if not self.current_device_idx in self.connected_devices:
-
-        # print("?")
 
         self.logger.set_active_device(self.current_device_idx)
 
@@ -1774,7 +1768,7 @@ class StabilityManager:
         if len(self.measurements) < self.instability_window:
             return None
 
-        currents = np.array([m[0] for m in self.measurements])  # in mA
+        currents = np.array([m[0] for m in self.measurements])
         timestamps = np.array([m[1] for m in self.measurements])
 
         # Rolling median calculation
@@ -1814,8 +1808,7 @@ class StabilityManager:
 
             return {
                 'action': 'increase',
-                'voltage': min(self.controller.power_supply.voltage_setpoint + increment, 850),
-##                'increment': increment
+                'voltage': min(self.controller.power_supply.voltage_setpoint + increment, 850)
             }
         else:
             self.consecutive_unstable += 1
@@ -1854,101 +1847,6 @@ class Overwatch:
             logging.error("Error during overwatch: %s", e)
 
 
-class CSVTestController:
-    """
-    A test controller that feeds pre-recorded measurement data from a CSV file.
-    The CSV file is assumed to have a header like:
-      MeasTime, dmm1, dmm2, Temperature, Humidity, Voltage
-    and subsequent rows with the corresponding values.
-    """
-
-    def __init__(self, csv_filename):
-        self.datestamp_format = "%Y-%m-%d %H:%M:%S.%f"
-        self.csv_filename = csv_filename
-        self.data = []
-        self.current_index = 0
-        self.load_data()
-        print(self.data[0][0])
-        self.test_start_time = datetime.datetime.strptime(
-            self.data[0][0], self.datestamp_format)
-        # Mimic the attributes used for plotting in the original controller.
-        self.current_reading = (0, 0, 0)  # (elapsed_time, dmm1, dmm2)
-        self.voltage_reading = (0, 0)       # (elapsed_time, ps_voltage)
-
-        self.previous_time = datetime.datetime.now()
-        self.measurement_interval = 0.05
-
-        self.power_supply = PowerSupply(simulation=True)
-
-        # Get user inputs for test ID and sample names
-        # test_id = input("Enter test ID:\n>>> ")
-        # sample1 = input("Sample in position 1:\n>>> ")
-        # sample2 = input("Sample in position 2:\n>>> ")
-
-        test_id = "testOOP"
-        sample1 = "TPx2"
-        sample2 = "TPx1"
-
-        self.logger = DataLogger(test_id, sample1, sample2)
-
-    def load_data(self):
-        try:
-            with open(self.csv_filename, "r") as f:
-                reader = csv.reader(f)
-                header = next(reader)  # Skip the header line.
-                for row in reader:
-                    self.data.append(row)
-            if not self.data:
-                raise ValueError("CSV file is empty!")
-        except Exception as e:
-            print("Error loading CSV data:", e)
-            raise
-
-    def perform_measurement(self):
-        """
-        Simulate one measurement cycle using a row from the CSV file.
-        The CSV is assumed to be structured as:
-        [timestamp, dmm1, dmm2, temperature, humidity, ps_voltage]
-        """
-        if self.current_index >= len(self.data):
-            # Optionally, loop over or stop
-            ## TODO---- should end program here instead ---- ##
-            return False
-
-        if (datetime.datetime.now() - self.previous_time).total_seconds() < self.measurement_interval:
-            return False
-
-        self.previous_time = datetime.datetime.now()
-
-        row = self.data[self.current_index]
-        self.current_index += 1
-
-        try:
-            # Parse the CSV values.
-            # Note: The timestamp from the CSV is not used for elapsed time.
-            dmm1_value = float(row[1])
-            dmm2_value = float(row[2])
-            temperature = row[3]
-            humidity = row[4]
-            ps_voltage = float(row[5])
-        except Exception as e:
-            print("Error parsing CSV row:", e)
-            return False
-
-        # Update the simulated readings.
-        elapsed = (datetime.datetime.strptime(
-            row[0], self.datestamp_format) - self.test_start_time).total_seconds()
-        self.current_reading = (elapsed, dmm1_value, dmm2_value)
-        self.voltage_reading = (elapsed, ps_voltage)
-
-        # Print out a status message (similar to the real measurement cycle).
-        # sensor_data_str = f"{temperature},{humidity}"
-        # print(f"[{datetime.datetime.now()}] {elapsed:.1f}s | DMM1: {dmm1_value:.4g} | "
-        #       f"DMM2: {dmm2_value:.4g} | PS Voltage: {ps_voltage:.1f} | Sensor: {sensor_data_str}")
-        return True
-
-    def cleanup(self):
-        pass
 
 
 def main():
@@ -1964,11 +1862,12 @@ def main():
     # Initialize the controller
     try:
         controller = TestController(stop_event)
-    except serial.SerialException:
-        input("[ERROR] One or more serial devices not present. Press enter to run with simulated data:\n>>>")
-        controller = CSVTestController(
-            csv_filename="250226_TP01,07_Ageing.csv")
-
+    except Exception as e:
+        logging.error("Error during device initialisation: %s", e)
+        input("[ENTER] to end program")
+        raise
+        
+        
     overwatch = Overwatch(controller)
 
     # Initialize the GUI

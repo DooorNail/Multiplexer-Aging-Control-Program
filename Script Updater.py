@@ -1,6 +1,4 @@
-import os
 import requests
-import importlib.util
 from pathlib import Path
 import subprocess
 
@@ -35,35 +33,6 @@ class AgingControlUpdater:
             print(f"Failed to cache script: {e}")
             return False
     
-    def _load_cached_script(self):
-        """Load the script from cache if available"""
-        if self.cache_path.exists():
-            try:
-                print("Loading cached version...")
-                with open(self.cache_path, 'r', encoding='utf-8') as f:
-                    return f.read()
-            except IOError as e:
-                print(f"Failed to read cached script: {e}")
-        return None
-    
-    def _run_script(self, script_content):
-        """Execute the Python script content"""
-        try:
-            # Create a module specification and module
-            spec = importlib.util.spec_from_loader(
-                self.script_name.replace('.py', ''),
-                loader=None,
-                origin=str(self.cache_path)
-            )
-            module = importlib.util.module_from_spec(spec)
-            
-            # Execute the script content in the module's namespace
-            exec(script_content, module.__dict__)
-            return True
-        except Exception as e:
-            print(f"Error executing script: {e}")
-            return False
-    
     def _run_in_new_window(self):
         """Run the script in a new terminal window"""
         try:
@@ -93,9 +62,6 @@ class AgingControlUpdater:
         # Run in new window
         if self._run_in_new_window():
             print(f"Launched script in new window. You can close this window.")
-        else:
-            print("Failed to launch script - trying to run in current window...")
-            os.system(f'python "{self.cache_path}"')
 
 
 if __name__ == "__main__":
