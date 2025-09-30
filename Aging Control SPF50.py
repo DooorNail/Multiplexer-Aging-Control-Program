@@ -510,7 +510,7 @@ class Multiplexer:
         
     def enable_channel_list(self, channels):
         """Enable a list of channels (0-7)."""
-        self.multiplexer.send_command("WA,0") # Turn off all channels
+        self.send_command("WA,0") # Turn off all channels
         
         for ch in channels:
             if 0 <= ch <= 7:
