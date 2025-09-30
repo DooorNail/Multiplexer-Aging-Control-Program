@@ -1627,7 +1627,7 @@ class TestController:
         # Ramp down voltage
         self.power_supply.voltage_setpoint_set(0)
         
-        self.power_supply.off()
+        # self.power_supply.off()
         # Discharge the system
         self.multiplexer.discharge(1)
         time.sleep(5)
