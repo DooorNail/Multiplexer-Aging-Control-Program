@@ -1633,7 +1633,7 @@ class TestController:
         time.sleep(5)
         self.multiplexer.discharge(0)
 
-        self.multplexer.send_command("WA,0") # Turn off all channels
+        self.multiplexer.send_command("WA,0") # Turn off all channels
 
         # print("Hold complete, ending measurements")
         self.logger.push_data_to_file(999)
