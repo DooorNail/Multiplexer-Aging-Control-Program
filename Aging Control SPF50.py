@@ -239,20 +239,24 @@ class PowerSupply:
 
             self.charging_curve = [
                 [0, 0, 0, 0],
-                [100, 5, 140, 0],
-                [200, 2, 140, 0],
-                [250, 2, 240, 0],
-                [300, 2, 240, 0],
-                [350, 1, 290, 0],
-                [400, 1, 350, 0],
-                [420, 0.5, 300, 0],
-                [440, 0.5, 300, 0],
-                [460, 0.5, 300, 0],
-                [480, 0.5, 300, 0],
-                [500, 0.5, 400, 0],
-                [520, 0.2, 300, 0],
-                [520, 1, 3600, 0]
+                [520, 25, 30, 0]
             ]
+            # self.charging_curve = [
+            #     [0, 0, 0, 0],
+            #     [100, 5, 140, 0],
+            #     [200, 2, 140, 0],
+            #     [250, 2, 240, 0],
+            #     [300, 2, 240, 0],
+            #     [350, 1, 290, 0],
+            #     [400, 1, 350, 0],
+            #     [420, 0.5, 300, 0],
+            #     [440, 0.5, 300, 0],
+            #     [460, 0.5, 300, 0],
+            #     [480, 0.5, 300, 0],
+            #     [500, 0.5, 400, 0],
+            #     [520, 0.2, 300, 0],
+            #     [520, 1, 3600, 0]
+            # ]
 
         else:
             self.charging_curve = charging_curve
@@ -1127,13 +1131,13 @@ class TestController:
         self.multiplexer = Multiplexer(port='COM7')
 
         self.hold_voltage = self.power_supply.charging_curve[-1][0]
-        self.hold_current = 0.5e-3
+        self.hold_current = 1e-3
         self.hold_duration = 12 * 60 * 60  # time to hold the group at voltage in s
-        self.hold_ramp_rate = 1  # V/s
+        self.hold_ramp_rate = 5  # V/s
         self.hold_remove_devices = True
         self.hold_removal_start = (self.hold_voltage / self.hold_ramp_rate) + 300  # Elapsed time required before devices can be removed
         self.hold_voltage_removal_threshold = self.hold_voltage * 0.95  # Voltage threshold below which devices can be removed
-        self.hold_voltage_buffer = CircularQueueAverage(60)
+        self.hold_voltage_buffer = CircularQueueAverage(120)
 
         self.run_self_test()
 
@@ -1196,13 +1200,13 @@ class TestController:
         self.current_multimeter.configure()
         self.current_multimeter.initiate()
         
-        self.multiplexer.send_command("WA,255")
-        self.power_supply.current_limit_set(1e-3)
-        self.power_supply.voltage_ramp_rate_set(520)
-        self.power_supply.voltage_setpoint_set(520)
-        self.power_supply.on()
-        time.sleep(10)
-        self.remove_worst_device()
+        # self.multiplexer.send_command("WA,255")
+        # self.power_supply.current_limit_set(1e-3)
+        # self.power_supply.voltage_ramp_rate_set(520)
+        # self.power_supply.voltage_setpoint_set(520)
+        # self.power_supply.on()
+        # time.sleep(10)
+        # self.remove_worst_device()
 
     def select_program(self):
         print(Fore.CYAN + "\n"*5 + "=" * 50 + "\n"
@@ -1582,8 +1586,8 @@ class TestController:
         
         if self.current_device_idx ==999 and self.hold_remove_devices:
             if measurementSuccess:
-                elapsed = (now - self.test_start_time).total_seconds()
-                if elapsed > self.hold_removal_start:
+                time_since_last_alteration = (now - self.hold_device_removal_timer).total_seconds()
+                if time_since_last_alteration > self.hold_removal_start:
                     self.hold_voltage_buffer.add(self.voltage_reading[2])
                     if self.hold_voltage_buffer.full() and (self.hold_voltage_buffer.average() < self.hold_voltage_removal_threshold):
                         print(f"{Fore.YELLOW}Hold voltage dropped below threshold {self.hold_voltage_buffer.average()}, removing device{Style.RESET_ALL}")
@@ -1643,9 +1647,11 @@ class TestController:
         self.multiplexer.enable_channel_list(self.connected_devices)
         
         self.power_supply.current_limit_set(self.hold_current)
-        while True:
-            time.sleep(1)
-            print(f"{Fore.GREEN}{self.power_supply.read_voltage()}V")
+        
+        self.hold_device_removal_timer = datetime.datetime.now()
+        # while True:
+        #     time.sleep(1)
+        #     print(f"{Fore.GREEN}{self.power_supply.read_voltage()}V")
             
         
         
@@ -1795,12 +1801,14 @@ class TestController:
                           + " GROUP HOLD ".center(50, "~") + "\n"
                           + "=" * 50 + "\n" + Style.RESET_ALL)
 
-                    self.multiplexer.send_command("WA,255") #TODO Only turn on channels with named devices
+                    # self.multiplexer.send_command("WA,255") #TODO Only turn on channels with named devices
+                    self.multiplexer.enable_channel_list(self.connected_devices)
                     self.power_supply.voltage_ramp_rate_set(self.hold_ramp_rate)
                     self.power_supply.voltage_setpoint_set(self.hold_voltage)
                     self.power_supply.current_limit_set(self.hold_current)
                     self.current_device_idx = 999
                     self.test_start_time = datetime.datetime.now()
+                    self.hold_device_removal_timer = datetime.datetime.now()
                     self.logger.set_active_device(self.current_device_idx)
                 return
             else:
