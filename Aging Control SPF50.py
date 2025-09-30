@@ -573,11 +573,14 @@ class DataLogger:
         self.minimum_measurement_count = minimum_measurement_count
         self.data_files = {}
         self.active_device = None
+        self.test_id = test_id
 
         # print(test_type)
 
         if test_type == "breakdown":
             sub_dir = os.path.join("Breakdown Data", test_id)
+        elif test_type == "leakage":
+            sub_dir = os.path.join("Leakage Data", test_id)
         else:
             sub_dir = os.path.join("Aging Data", test_id)
 
@@ -609,6 +612,9 @@ class DataLogger:
     def set_active_device(self, device_idx):
         """Set which device is currently being measured."""
         self.active_device = device_idx
+
+    def get_test_id(self):
+        return self.test_id
 
     def write_header(self, device_idx):
         """Write header to a device's data file."""
@@ -1007,8 +1013,8 @@ class DataGUI(QMainWindow):
 
     def skip_device(self):
         """Toggle pause state of the measurements"""
-        self.paused = not self.paused
         self.status_label.setText("SKIPPING - " + self.status_label.text())
+        self.controller.interrupt_test()
 
 
     def stop_measurements(self):
@@ -1095,6 +1101,7 @@ class TestController:
         self.populated_threshold = 1e-7  # Minimum current for device verification
 
         self.breakdown_test = False
+        self.leakage_test = False
         self.end_test = False
 
         self.stability_manager = StabilityManager(self)
@@ -1132,12 +1139,14 @@ class TestController:
 
         self.hold_voltage = self.power_supply.charging_curve[-1][0]
         self.hold_current = 1e-3
-        self.hold_duration = 12 * 60 * 60  # time to hold the group at voltage in s
+        # self.hold_duration = 12 * 60 * 60  # time to hold the group at voltage in s
+        self.hold_duration = 1000  # time to hold the group at voltage in s
         self.hold_ramp_rate = 5  # V/s
         self.hold_remove_devices = True
-        self.hold_removal_start = (self.hold_voltage / self.hold_ramp_rate) + 300  # Elapsed time required before devices can be removed
-        self.hold_voltage_removal_threshold = self.hold_voltage * 0.95  # Voltage threshold below which devices can be removed
-        self.hold_voltage_buffer = CircularQueueAverage(120)
+        # self.hold_removal_start = (self.hold_voltage / self.hold_ramp_rate) + 300  # Elapsed time required before devices can be removed
+        self.hold_removal_start = (self.hold_voltage / self.hold_ramp_rate) + 60  # Elapsed time required before devices can be removed
+        self.hold_voltage_removal_threshold = self.hold_voltage * 0.9  # Voltage threshold below which devices can be removed
+        self.hold_voltage_buffer = CircularQueueAverage(240)
 
         self.run_self_test()
 
@@ -1163,10 +1172,15 @@ class TestController:
               Fore.LIGHTBLACK_EX + "data will be put in this folder" + Style.RESET_ALL)
 
         if self.breakdown_test:
-            test_type = "breakdown",
             self.logger = DataLogger(
                 test_id=input("\n>>> "),
                 test_type="breakdown",
+                device_names=self.device_names
+            )
+        elif self.leakage_test:
+            self.logger = DataLogger(
+                test_id=input("\n>>> "),
+                test_type="leakage",
                 device_names=self.device_names
             )
         else:
@@ -1197,6 +1211,7 @@ class TestController:
         print(
             f"{Fore.LIGHTBLACK_EX}estimated runtime: roughly {len(self.connected_devices) * charging_curve_duration / 60} minutes")
 
+        self.multiplexer.arm()
         self.current_multimeter.configure()
         self.current_multimeter.initiate()
         
@@ -1227,6 +1242,7 @@ class TestController:
                   + " BREAKDOWN SELECTED ".center(50, "~") + "\n"
                   + "=" * 50 + Style.RESET_ALL)
         elif response.lower().startswith("l"):
+            self.leakage_test = True
             self.power_supply.current_limit_set(1e-3)
             self.power_supply.charging_curve = [
                 [0, 0, 0, 0],
@@ -1565,13 +1581,7 @@ class TestController:
             elapsed = (now -
                        self.test_start_time).total_seconds()
             if elapsed > self.hold_duration:
-                self.power_supply.off()
-                self.multiplexer.discharge(1)
-                time.sleep(1)
-                self.multiplexer.disarm()
-                print("Hold complete, ending measurements")
-                self.logger.push_data_to_file(999)
-                self.stop_event.set()
+                self.end_group_test()
         else:
             # run individual ramp
             self.power_supply.run_program()
@@ -1583,17 +1593,19 @@ class TestController:
         measurementSuccess = self.perform_measurement()
         
         
-        
-        if self.current_device_idx ==999 and self.hold_remove_devices:
-            if measurementSuccess:
-                time_since_last_alteration = (now - self.hold_device_removal_timer).total_seconds()
-                if time_since_last_alteration > self.hold_removal_start:
-                    self.hold_voltage_buffer.add(self.voltage_reading[2])
-                    if self.hold_voltage_buffer.full() and (self.hold_voltage_buffer.average() < self.hold_voltage_removal_threshold):
-                        print(f"{Fore.YELLOW}Hold voltage dropped below threshold {self.hold_voltage_buffer.average()}, removing device{Style.RESET_ALL}")
-                        self.remove_worst_device()
-                        self.hold_voltage_buffer.clear()
+        try:
             
+            if self.current_device_idx ==999 and self.hold_remove_devices:
+                if measurementSuccess:
+                    time_since_last_alteration = (now - self.hold_device_removal_timer).total_seconds()
+                    if time_since_last_alteration > self.hold_removal_start:
+                        self.hold_voltage_buffer.add(self.voltage_reading[2])
+                        if self.hold_voltage_buffer.full() and (self.hold_voltage_buffer.average() < self.hold_voltage_removal_threshold):
+                            print(f"{Fore.YELLOW}Average hold voltage dropped below threshold: {self.hold_voltage_buffer.average():.1f}, removing device")
+                            self.remove_worst_device()
+                            self.hold_voltage_buffer.clear()
+        except Exception as e:
+            logging.error("Error during device removal: %s", e)
 
         # try:
             
@@ -1606,6 +1618,45 @@ class TestController:
 
 
         return measurementSuccess
+    
+    def end_group_test(self):
+        print(Fore.CYAN + "\n"*5 + "=" * 50 + "\n"
+              + " GROUP HOLD COMPLETE ".center(50, "~") + "\n"
+              + "=" * 50 + "\n" + Style.RESET_ALL)
+        
+        # Ramp down voltage
+        self.power_supply.voltage_setpoint_set(0)
+        
+        self.power_supply.off()
+        # Discharge the system
+        self.multiplexer.discharge(1)
+        time.sleep(5)
+        self.multiplexer.discharge(0)
+
+        self.multplexer.send_command("WA,0") # Turn off all channels
+
+        # print("Hold complete, ending measurements")
+        self.logger.push_data_to_file(999)
+        # self.stop_event.set()
+        
+        if not self.connected_devices:
+            print(f"{Fore.RED}No connected devices survived aging, stopping test.")
+            self.stop_event.set()
+        
+        self.logger = DataLogger(
+                test_id=self.logger.get_test_id(),
+                test_type="leakage",
+                device_names=self.device_names
+            )
+        
+        self.leakage_test = True
+        self.power_supply.current_limit_set(1e-3)
+        self.power_supply.charging_curve = [
+            [0, 0, 0, 0],
+            [450, 5, 1000, 0]
+        ]
+        
+        self.current_device_idx = None
     
     def remove_worst_device(self):
         if not self.connected_devices:
@@ -1623,7 +1674,7 @@ class TestController:
         
         self.power_supply.current_limit_set(50e-6)
         
-        time.sleep(5)
+        time.sleep(10)
         
         voltage_dictionary = {}
         
@@ -1640,9 +1691,13 @@ class TestController:
         
         worst_device = min(voltage_dictionary, key=voltage_dictionary.get)    
         
-        print(f"{Fore.RED}Removing device on channel {worst_device+1} with voltage {voltage_dictionary[worst_device]}V{Style.RESET_ALL}")
+        print(f"{Fore.RED}Removing device on channel {worst_device+1} with voltage {voltage_dictionary[worst_device]:.2f}V")
         
         self.connected_devices.remove(worst_device)
+        
+        if not self.connected_devices:
+            self.end_group_test()
+            return
         
         self.multiplexer.enable_channel_list(self.connected_devices)
         
@@ -1652,9 +1707,6 @@ class TestController:
         # while True:
         #     time.sleep(1)
         #     print(f"{Fore.GREEN}{self.power_supply.read_voltage()}V")
-            
-        
-        
 
     def perform_measurement(self):
         current_value = self.current_multimeter.read_value()
@@ -1789,7 +1841,7 @@ class TestController:
             current_list_index = self.connected_devices.index(
                 self.current_device_idx)
             if current_list_index+1 >= len(self.connected_devices):
-                if self.breakdown_test:
+                if self.breakdown_test or self.leakage_test:
                     self.power_supply.off()
                     self.multiplexer.discharge(1)
                     time.sleep(1)
@@ -1810,6 +1862,7 @@ class TestController:
                     self.test_start_time = datetime.datetime.now()
                     self.hold_device_removal_timer = datetime.datetime.now()
                     self.logger.set_active_device(self.current_device_idx)
+                    self.current_multimeter.read_value(clear_extra=True)
                 return
             else:
                 self.current_device_idx = self.connected_devices[current_list_index+1]
