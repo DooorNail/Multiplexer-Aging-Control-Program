@@ -508,6 +508,16 @@ class Multiplexer:
         """Disarm the multiplexer."""
         self.send_command("DISARM")
         
+    def enable_channel_list(self, channels):
+        """Enable a list of channels (0-7)."""
+        self.multiplexer.send_command("WA,0") # Turn off all channels
+        
+        for ch in channels:
+            if 0 <= ch <= 7:
+                self.set_channel(ch, 1)
+            else:
+                logging.error(f"Invalid channel: {ch}")
+    
     def watchdog_heartbeat(self):
         self.send_command("BEAT")
     
@@ -1605,19 +1615,40 @@ class TestController:
         # time.sleep(5)
         # self.multiplexer.discharge(0)
         
-        self.power_supply.current_limit_set(5e-5)
-        
         self.multiplexer.send_command("WA,0") # Turn off all channels
         
+        self.power_supply.current_limit_set(50e-6)
         
+        time.sleep(5)
+        
+        voltage_dictionary = {}
+        
+        for idx in self.connected_devices:
+            time.sleep(0.2)  # Settling time
+            self.multiplexer.set_channel(idx, 1)
+            # self.power_supply.on()
+            time.sleep(0.1)  # Settling time
+            voltage_dictionary[idx] = self.power_supply.read_voltage()
+            # print(f"{idx}: {self.power_supply.read_voltage()}")
+            self.multiplexer.set_channel(idx, 0)
+            
+        
+        
+        worst_device = min(voltage_dictionary, key=voltage_dictionary.get)    
+        
+        print(f"{Fore.RED}Removing device on channel {worst_device+1} with voltage {voltage_dictionary[worst_device]}V{Style.RESET_ALL}")
+        
+        self.connected_devices.remove(worst_device)
+        
+        self.multiplexer.enable_channel_list(self.connected_devices)
+        
+        self.power_supply.current_limit_set(self.hold_current)
         while True:
-            for idx in self.connected_devices:
-                self.multiplexer.set_channel(idx, 1)
-                # self.power_supply.on()
-                time.sleep(0.1)  # Settling time
-                print(f"{idx}: {self.power_supply.read_voltage()}")
-                self.multiplexer.set_channel(idx, 0)
-                time.sleep(0.2)  # Settling time
+            time.sleep(1)
+            print(f"{Fore.GREEN}{self.power_supply.read_voltage()}V")
+            
+        
+        
 
     def perform_measurement(self):
         current_value = self.current_multimeter.read_value()
