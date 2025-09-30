@@ -65,6 +65,7 @@ logging.basicConfig(level=logging.INFO,
                     format='%(asctime)s - %(levelname)s - %(message)s')
 
 
+
 class Multimeter:
     def __init__(self, resource):
         """
@@ -438,10 +439,11 @@ class PowerSupply:
         self.voltage_setpoint_set(0)
         self.run_program()
 
-    def is_segment_dynamic(self):
-        if len(self.charging_curve[self.prgm_index]) >= 4:
-            return self.charging_curve[self.prgm_index][3]
-        return 0
+    # def is_device_removal_segment(self): 
+    #     #Whether the charging curve indicates that faulty devices should be removed during this segment
+    #     if len(self.charging_curve[self.prgm_index]) >= 4:
+    #         return self.charging_curve[self.prgm_index][3]
+    #     return 0
 
     def get_segment_voltage_setpoint(self):
         return self.charging_curve[self.prgm_index[0]]
@@ -566,7 +568,6 @@ class DataLogger:
             sub_dir = os.path.join("Aging Data", test_id)
 
         os.makedirs(sub_dir, exist_ok=True)
-
         # Create a file for each device
         base_filename = os.path.join(sub_dir,
                                      (datetime.datetime.now().strftime("%y%m%d") + "_" + test_id))
@@ -1025,7 +1026,47 @@ class DataGUI(QMainWindow):
         self.update_timer.stop()
         event.accept()
 
+class CircularQueueAverage:
+    def __init__(self, size):
+        self.size = size
+        self.queue = [0.0] * size
+        self.index = 0
+        self.count = 0
+        self.sum = 0.0
+    
+    def clear(self):
+        self.queue = [0.0] * self.size
+        self.index = 0
+        self.count = 0
+        self.sum = 0.0
+        
+    def full(self):
+        return self.count >= self.size
 
+    def add(self, value):
+        if self.count < self.size:
+            self.sum += value
+            self.queue[self.index] = value
+            self.count += 1
+        else:
+            # Remove oldest value, add new one
+            old_value = self.queue[self.index]
+            self.sum += value - old_value
+            self.queue[self.index] = value
+        self.index = (self.index + 1) % self.size
+
+    def average(self):
+        if self.count == 0:
+            return 0.0
+        return self.sum / self.count
+
+    def get_all(self):
+        """Returns all current elements in the queue, most recent last."""
+        if self.count < self.size:
+            return self.queue[:self.count]
+        # Return in correct order: oldest first, newest last
+        return self.queue[self.index:] + self.queue[:self.index]
+    
 class TestController:
     def __init__(self, stop_event):
         """
@@ -1078,6 +1119,11 @@ class TestController:
         self.hold_voltage = self.power_supply.charging_curve[-1][0]
         self.hold_current = 0.5e-3
         self.hold_duration = 12 * 60 * 60  # time to hold the group at voltage in s
+        self.hold_ramp_rate = 1  # V/s
+        self.hold_remove_devices = True
+        self.hold_removal_start = (self.hold_voltage / self.hold_ramp_rate) + 300  # Elapsed time required before devices can be removed
+        self.hold_voltage_removal_threshold = self.hold_voltage * 0.95  # Voltage threshold below which devices can be removed
+        self.hold_voltage_buffer = CircularQueueAverage(60)
 
         self.run_self_test()
 
@@ -1139,6 +1185,14 @@ class TestController:
 
         self.current_multimeter.configure()
         self.current_multimeter.initiate()
+        
+        self.multiplexer.send_command("WA,255")
+        self.power_supply.current_limit_set(1e-3)
+        self.power_supply.voltage_ramp_rate_set(520)
+        self.power_supply.voltage_setpoint_set(520)
+        self.power_supply.on()
+        time.sleep(10)
+        self.remove_worst_device()
 
     def select_program(self):
         print(Fore.CYAN + "\n"*5 + "=" * 50 + "\n"
@@ -1515,18 +1569,55 @@ class TestController:
         measurementSuccess = self.perform_measurement()
         
         
-
-        try:
+        
+        if self.current_device_idx ==999 and self.hold_remove_devices:
+            if measurementSuccess:
+                elapsed = (now - self.test_start_time).total_seconds()
+                if elapsed > self.hold_removal_start:
+                    self.hold_voltage_buffer.add(self.voltage_reading[2])
+                    if self.hold_voltage_buffer.full() and (self.hold_voltage_buffer.average() < self.hold_voltage_removal_threshold):
+                        print(f"{Fore.YELLOW}Hold voltage dropped below threshold {self.hold_voltage_buffer.average()}, removing device{Style.RESET_ALL}")
+                        self.remove_worst_device()
+                        self.hold_voltage_buffer.clear()
             
-            if measurementSuccess and self.dynamic_voltage_control:
-                if self.power_supply.is_segment_dynamic():
-                    self._run_dynamic_control()
-        except Exception as e:
-            logging.error("Error During dynamic control: %s", e)
+
+        # try:
+            
+        #     if measurementSuccess and self.dynamic_voltage_control:
+        #         if self.power_supply.is_segment_dynamic():
+        #             self._run_dynamic_control()
+        # except Exception as e:
+        #     logging.error("Error During dynamic control: %s", e)
 
 
 
         return measurementSuccess
+    
+    def remove_worst_device(self):
+        if not self.connected_devices:
+            raise Exception("No devices left to remove.")
+        
+        # self.power_supply.off()
+        
+        # self.power_supply.voltage_ramp_rate_set(100)
+        
+        # self.multiplexer.discharge(1)
+        # time.sleep(5)
+        # self.multiplexer.discharge(0)
+        
+        self.power_supply.current_limit_set(5e-5)
+        
+        self.multiplexer.send_command("WA,0") # Turn off all channels
+        
+        
+        while True:
+            for idx in self.connected_devices:
+                self.multiplexer.set_channel(idx, 1)
+                # self.power_supply.on()
+                time.sleep(0.1)  # Settling time
+                print(f"{idx}: {self.power_supply.read_voltage()}")
+                self.multiplexer.set_channel(idx, 0)
+                time.sleep(0.2)  # Settling time
 
     def perform_measurement(self):
         current_value = self.current_multimeter.read_value()
@@ -1673,8 +1764,8 @@ class TestController:
                           + " GROUP HOLD ".center(50, "~") + "\n"
                           + "=" * 50 + "\n" + Style.RESET_ALL)
 
-                    self.multiplexer.send_command("WA,255")
-                    self.power_supply.voltage_ramp_rate_set(1)
+                    self.multiplexer.send_command("WA,255") #TODO Only turn on channels with named devices
+                    self.power_supply.voltage_ramp_rate_set(self.hold_ramp_rate)
                     self.power_supply.voltage_setpoint_set(self.hold_voltage)
                     self.power_supply.current_limit_set(self.hold_current)
                     self.current_device_idx = 999
