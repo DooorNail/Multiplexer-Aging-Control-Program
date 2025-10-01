@@ -217,8 +217,12 @@ class PowerSupply:
 
             self.charging_curve = [
                 [0, 0, 0, 0],
-                [520, 25, 30, 0]
-            ] #TODO Reset this back to default once I'm done testing
+                [520, 10, 60, 0],
+                [0, 100, 30, 0],
+                [520, 100, 30, 0],
+                
+            ]
+            
             # self.charging_curve = [
             #     [0, 0, 0, 0],
             #     [100, 5, 140, 0],
@@ -1130,7 +1134,7 @@ class TestController:
         self.hold_remove_devices = True
         self.hold_removal_start = (self.hold_voltage / self.hold_ramp_rate) + 300  # Elapsed time required before devices can be removed
         self.hold_voltage_removal_threshold = self.hold_voltage * 0.9  # Voltage threshold below which devices can be removed
-        self.hold_voltage_buffer = CircularQueueAverage(240)
+        self.hold_voltage_buffer = CircularQueueAverage(600)
 
         self.run_self_test()
 
@@ -1681,11 +1685,29 @@ class TestController:
         
         worst_device = min(voltage_dictionary, key=voltage_dictionary.get)    
         
-        print(f"{Fore.RED}Removing device {self.device_names[worst_device]} (Channel {worst_device+1}) with voltage {voltage_dictionary[worst_device]:.2f}V")
+        #check that the device indentified as the worst device is significantly use a percentage factor worse than the other devices.
+        #if it's not less than 0.9* the next worse, store it in a variable and dont remove it. If next time remove worst device is called and it is the same worst device, then remove it anyway.
         
-        self.connected_devices.remove(worst_device)
-        
-        self.logger.add_comment(f"Removed device {self.device_names[worst_device]} (Channel {worst_device+1})")
+        if len(voltage_dictionary) > 1:
+            sorted_voltages = sorted(voltage_dictionary.values())
+            second_worst_voltage = sorted_voltages[1]
+            if voltage_dictionary[worst_device] > 0.9 * second_worst_voltage:
+                if hasattr(self, 'last_warned_device') and self.last_warned_device == worst_device:
+                    print(f"{Fore.RED}Warning: Device {self.device_names[worst_device]} (Channel {worst_device+1}) is the worst device again but not significantly worse. Removing anyway.")
+                else:
+                    print(f"{Fore.YELLOW}Warning: Device {self.device_names[worst_device]} (Channel {worst_device+1}) is the worst device but not significantly worse than others. Will remove if it remains the worst next time.")
+                    self.last_warned_device = worst_device
+                    worst_device = None
+
+        if worst_device is not None:
+            if hasattr(self, 'last_warned_device'):
+                del self.last_warned_device
+                
+            print(f"{Fore.RED}Removing device {self.device_names[worst_device]} (Channel {worst_device+1}) with voltage {voltage_dictionary[worst_device]:.2f}V")
+            
+            self.connected_devices.remove(worst_device)
+            
+            self.logger.add_comment(f"Removed device {self.device_names[worst_device]} (Channel {worst_device+1})")
         
         if not self.connected_devices:
             self.end_group_test()
