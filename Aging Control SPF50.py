@@ -1125,11 +1125,10 @@ class TestController:
         self.hold_voltage = self.power_supply.charging_curve[-1][0]
         self.hold_current = 1e-3
         # self.hold_duration = 12 * 60 * 60  # time to hold the group at voltage in s
-        self.hold_duration = 1000  # time to hold the group at voltage in s
+        self.hold_duration = 6000  # time to hold the group at voltage in s
         self.hold_ramp_rate = 5  # V/s
         self.hold_remove_devices = True
-        # self.hold_removal_start = (self.hold_voltage / self.hold_ramp_rate) + 300  # Elapsed time required before devices can be removed
-        self.hold_removal_start = (self.hold_voltage / self.hold_ramp_rate) + 60  # Elapsed time required before devices can be removed
+        self.hold_removal_start = (self.hold_voltage / self.hold_ramp_rate) + 300  # Elapsed time required before devices can be removed
         self.hold_voltage_removal_threshold = self.hold_voltage * 0.9  # Voltage threshold below which devices can be removed
         self.hold_voltage_buffer = CircularQueueAverage(240)
 
@@ -1608,7 +1607,7 @@ class TestController:
         
         #print each of the names from device names that aren't in connected devices
         for idx, name in enumerate(self.device_names):
-            if idx not in self.connected_devices:
+            if idx not in self.connected_devices and name is not None:
                 print(f"{Fore.RED}Device {name} (Channel {idx + 1}) was removed.{Style.RESET_ALL}")
 
         # Ramp down voltage
@@ -1665,7 +1664,7 @@ class TestController:
         
         self.power_supply.current_limit_set(50e-6)
         
-        time.sleep(10)
+        time.sleep(15)
         
         voltage_dictionary = {}
         
@@ -1682,11 +1681,11 @@ class TestController:
         
         worst_device = min(voltage_dictionary, key=voltage_dictionary.get)    
         
-        print(f"{Fore.RED}Removing device on channel {worst_device+1} with voltage {voltage_dictionary[worst_device]:.2f}V")
+        print(f"{Fore.RED}Removing device {self.device_names[worst_device]} (Channel {worst_device+1}) with voltage {voltage_dictionary[worst_device]:.2f}V")
         
         self.connected_devices.remove(worst_device)
         
-        self.logger.add_comment(f"Removed device {self.device_names[worst_device]}")
+        self.logger.add_comment(f"Removed device {self.device_names[worst_device]} (Channel {worst_device+1})")
         
         if not self.connected_devices:
             self.end_group_test()
