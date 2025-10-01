@@ -6,28 +6,6 @@
 Implement the file naming based on test_type in DataLogger, update class declaration
 Implement overwatch for aging
 
-
-Breakdown or aging?
-    Aging options:
-    
-    - Whether to ramp each device individually
-    --> how many times?
-    --> stop during ramp if device has "failed"
-    
-    - Whether to ramp all of the devices up to a hold voltage together afterwards
-    --> Voltage and time?
-    --> bad devices should be identified and remove if affecting the other ones
-
-During Group hold:
-    if current is > 80% of limit for >50% of last 60 seconds.
-        set voltage to current voltage - 15V (minimum 15V)
-        loop through each individual sample in order of suspiciousness (run stability calculation on the end of the individual ramp)
-        wait 15s, record current.
-        remove the device with the highest current 
-        continue
-
-
-
     
 Automatic port selection
 
@@ -240,7 +218,7 @@ class PowerSupply:
             self.charging_curve = [
                 [0, 0, 0, 0],
                 [520, 25, 30, 0]
-            ]
+            ] #TODO Reset this back to default once I'm done testing
             # self.charging_curve = [
             #     [0, 0, 0, 0],
             #     [100, 5, 140, 0],
@@ -616,10 +594,17 @@ class DataLogger:
     def get_test_id(self):
         return self.test_id
 
+    def add_comment(self, comment):
+        """Add a comment in the current data file"""
+        if self.active_device is not None and self.active_device in self.data_files:
+            timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            comment_line = f"{timestamp},,,,, {comment}\n"
+            self.data_files[self.active_device]['data_points'].append(comment_line)
+
     def write_header(self, device_idx):
         """Write header to a device's data file."""
         if device_idx in self.data_files:
-            header = f"Time,Current,Temperature,Humidity,Voltage\n"
+            header = f"Time,Current,Temperature,Humidity,Voltage,Comments\n"
             try:
                 with open(self.data_files[device_idx]['filename'], "a") as f:
                     f.write(header)
@@ -1601,7 +1586,7 @@ class TestController:
                     if time_since_last_alteration > self.hold_removal_start:
                         self.hold_voltage_buffer.add(self.voltage_reading[2])
                         if self.hold_voltage_buffer.full() and (self.hold_voltage_buffer.average() < self.hold_voltage_removal_threshold):
-                            print(f"{Fore.YELLOW}Average hold voltage dropped below threshold: {self.hold_voltage_buffer.average():.1f}, removing device")
+                            print(f"{Fore.YELLOW}[{elapsed:.1f}s] Average hold voltage dropped below threshold. Currently: {self.hold_voltage_buffer.average():.1f}V")
                             self.remove_worst_device()
                             self.hold_voltage_buffer.clear()
         except Exception as e:
@@ -1620,10 +1605,12 @@ class TestController:
         return measurementSuccess
     
     def end_group_test(self):
-        print(Fore.CYAN + "\n"*5 + "=" * 50 + "\n"
-              + " GROUP HOLD COMPLETE ".center(50, "~") + "\n"
-              + "=" * 50 + "\n" + Style.RESET_ALL)
         
+        #print each of the names from device names that aren't in connected devices
+        for idx, name in enumerate(self.device_names):
+            if idx not in self.connected_devices:
+                print(f"{Fore.RED}Device {name} (Channel {idx + 1}) was removed.{Style.RESET_ALL}")
+
         # Ramp down voltage
         self.power_supply.voltage_setpoint_set(0)
         
@@ -1642,6 +1629,10 @@ class TestController:
         if not self.connected_devices:
             print(f"{Fore.RED}No connected devices survived aging, stopping test.")
             self.stop_event.set()
+        
+        print(Fore.CYAN + "\n"*5 + "=" * 50 + "\n"
+              + " LEAKAGE CURRENT ".center(50, "~") + "\n"
+              + "=" * 50 + "\n" + Style.RESET_ALL)
         
         self.logger = DataLogger(
                 test_id=self.logger.get_test_id(),
@@ -1694,6 +1685,8 @@ class TestController:
         print(f"{Fore.RED}Removing device on channel {worst_device+1} with voltage {voltage_dictionary[worst_device]:.2f}V")
         
         self.connected_devices.remove(worst_device)
+        
+        self.logger.add_comment(f"Removed device {self.device_names[worst_device]}")
         
         if not self.connected_devices:
             self.end_group_test()
@@ -1853,7 +1846,7 @@ class TestController:
                           + " GROUP HOLD ".center(50, "~") + "\n"
                           + "=" * 50 + "\n" + Style.RESET_ALL)
 
-                    # self.multiplexer.send_command("WA,255") #TODO Only turn on channels with named devices
+                    
                     self.multiplexer.enable_channel_list(self.connected_devices)
                     self.power_supply.voltage_ramp_rate_set(self.hold_ramp_rate)
                     self.power_supply.voltage_setpoint_set(self.hold_voltage)
