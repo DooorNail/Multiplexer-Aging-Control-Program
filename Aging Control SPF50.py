@@ -177,11 +177,7 @@ class TemperatureHumiditySensor: #deprecated, no longer logged in current versio
                         humidity = int(lines[3][3:7], 16) / 200.0
                         return temperature, humidity
             except Exception as e:
-                logging.error("Error reading temperature/humidity: %s", e)##            self.charging_curve = [
-##                [0, 0, 0, 0],
-##                [520, 2, 300, 0],
-##                [520, 0.2, 7200, 1]
-##            ]
+                logging.error("Error reading temperature/humidity: %s", e)
 
         return None
 
@@ -215,30 +211,30 @@ class PowerSupply:
             [3] Whether dynamic voltage should run during this section (0: no  || 1: yes)
             """
 
-            self.charging_curve = [
-                [0, 0, 0, 0],
-                [520, 10, 60, 0],
-                [0, 100, 30, 0],
-                [520, 100, 30, 0],
-                
-            ]
-            
             # self.charging_curve = [
             #     [0, 0, 0, 0],
-            #     [100, 5, 140, 0],
-            #     [200, 2, 140, 0],
-            #     [250, 2, 240, 0],
-            #     [300, 2, 240, 0],
-            #     [350, 1, 290, 0],
-            #     [400, 1, 350, 0],
-            #     [420, 0.5, 300, 0],
-            #     [440, 0.5, 300, 0],
-            #     [460, 0.5, 300, 0],
-            #     [480, 0.5, 300, 0],
-            #     [500, 0.5, 400, 0],
-            #     [520, 0.2, 300, 0],
-            #     [520, 1, 3600, 0]
+            #     [520, 10, 60, 0],
+            #     [0, 100, 30, 0],
+            #     [520, 100, 30, 0],
+                
             # ]
+            
+            self.charging_curve = [
+                [0, 0, 0, 0],
+                [100, 5, 140, 0],
+                [200, 2, 140, 0],
+                [250, 2, 240, 0],
+                [300, 2, 240, 0],
+                [350, 1, 290, 0],
+                [400, 1, 350, 0],
+                [420, 0.5, 300, 0],
+                [440, 0.5, 300, 0],
+                [460, 0.5, 300, 0],
+                [480, 0.5, 300, 0],
+                [500, 0.5, 400, 0],
+                [520, 0.2, 300, 0],
+                [520, 1, 3600, 0]
+            ]
 
         else:
             self.charging_curve = charging_curve
