@@ -26,6 +26,10 @@ import os
 import numpy as np
 import pandas as pd
 from colorama import init, Fore, Style
+import sys
+import traceback
+import signal
+from logging.handlers import RotatingFileHandler
 
 # PyQt5 imports
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QVBoxLayout, QWidget,
@@ -39,8 +43,36 @@ import matplotlib.pyplot as plt
 init(autoreset=True)
 
 # Configure logging
-logging.basicConfig(level=logging.INFO,
-                    format='%(asctime)s - %(levelname)s - %(message)s')
+LOG_DIR = os.path.join(os.path.dirname(__file__), 'logs') if '__file__' in globals() else 'logs'
+os.makedirs(LOG_DIR, exist_ok=True)
+log_file_path = os.path.join(LOG_DIR, 'aging_control.log')
+
+# Create root logger
+logger = logging.getLogger()
+logger.setLevel(logging.INFO)
+
+# Console handler (existing behavior)
+console_handler = logging.StreamHandler()
+console_handler.setLevel(logging.INFO)
+console_formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+console_handler.setFormatter(console_formatter)
+logger.addHandler(console_handler)
+
+# Rotating file handler
+file_handler = RotatingFileHandler(log_file_path, maxBytes=5_000_000, backupCount=5, encoding='utf-8')
+file_handler.setLevel(logging.DEBUG)
+file_formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(name)s - %(message)s')
+file_handler.setFormatter(file_formatter)
+logger.addHandler(file_handler)
+
+# Ensure exceptions are logged
+def log_uncaught_exceptions(exc_type, exc_value, exc_traceback):
+    if issubclass(exc_type, KeyboardInterrupt):
+        sys.__excepthook__(exc_type, exc_value, exc_traceback)
+        return
+    logger.critical("Uncaught exception", exc_info=(exc_type, exc_value, exc_traceback))
+
+sys.excepthook = log_uncaught_exceptions
 
 
 
@@ -197,6 +229,7 @@ class PowerSupply:
         self.voltage_ramp_rate = 5
         self.current_limit_value = 1.5e-3
         self.voltage_setpoint = 0
+
         self.segment_start_time = datetime.datetime.now()
         self.prgm_index = 0
         self.sequence_complete = False
@@ -428,7 +461,12 @@ class PowerSupply:
     #     return 0
 
     def get_segment_voltage_setpoint(self):
-        return self.charging_curve[self.prgm_index[0]]
+        # Return the voltage setpoint for the current program index
+        try:
+            return self.charging_curve[self.prgm_index][0]
+        except Exception as e:
+            logging.error("Error getting segment voltage setpoint: %s", e)
+            return None
 
     def run_program(self):
         """
@@ -969,29 +1007,44 @@ class DataGUI(QMainWindow):
         # Process all available data from the queue
         while not self.measurement_queue.empty():
             latest_data = self.measurement_queue.get()
-            if latest_data is not None:
-                time_elapsed = latest_data['current'][1]
+            try:
+                if not latest_data:
+                    continue
 
-                # Update status label
-                device_name = latest_data['current'][0]
-                current_val = latest_data['current'][2]
-                voltage_val = latest_data['voltage'][2]
-                self.status_label.setText(
-                    f"Device: {device_name} | "
-                    f"Time: {time_elapsed:.1f}s | "
-                    f"Current: {current_val*1e6:.2f} µA | "
-                    f"Voltage: {voltage_val:.1f} V"
-                )
+                # Validate structure
+                cur = latest_data.get('current') if isinstance(latest_data, dict) else None
+                vol = latest_data.get('voltage') if isinstance(latest_data, dict) else None
+                if not cur or not vol:
+                    continue
+
+                # Unpack safely
+                device_name = cur[0]
+                time_elapsed = cur[1]
+                current_val = cur[2]
+                voltage_val = vol[2]
+
+                # Skip updates that contain None
+                if current_val is None or voltage_val is None or time_elapsed is None:
+                    logging.debug("Skipping plot update due to None in measurement: %s", latest_data)
+                    continue
+
+                # Update status label (safe formatting)
+                try:
+                    self.status_label.setText(
+                        f"Device: {device_name} | Time: {time_elapsed:.1f}s | Current: {current_val*1e6:.2f} µA | Voltage: {voltage_val:.1f} V"
+                    )
+                except Exception:
+                    # Fallback to a safer representation
+                    self.status_label.setText(f"Device: {device_name} | Time: {time_elapsed}")
 
                 # Update plots
-                self.voltage_plots[0].update(
-                    latest_data['voltage'], time_elapsed)
-                self.voltage_plots[1].update(
-                    latest_data['voltage'], time_elapsed)
-                self.current_plots[0].update(
-                    latest_data['current'], time_elapsed)
-                self.current_plots[1].update(
-                    latest_data['current'], time_elapsed)
+                self.voltage_plots[0].update(vol, time_elapsed)
+                self.voltage_plots[1].update(vol, time_elapsed)
+                self.current_plots[0].update(cur, time_elapsed)
+                self.current_plots[1].update(cur, time_elapsed)
+            except Exception as e:
+                logging.error("Error while updating plots: %s", e)
+                logging.error(traceback.format_exc())
 
         # Redraw just once for all plots
         self.canvas.draw()
@@ -1105,12 +1158,17 @@ class TestController:
         if len(resources) < 1:
             raise Exception("Not enough VISA resources found for multimeters.")
 
+        # Ensure attribute exists even when no matching resource is found
+        self.current_multimeter = None
         for resource in resources:
             if "MY60044278" in resource:
-                self.current_multimeter = Multimeter(
-                    self.rm.open_resource(resource))
+                try:
+                    self.current_multimeter = Multimeter(
+                        self.rm.open_resource(resource))
+                except Exception as e:
+                    logging.error("Failed to open multimeter resource %s: %s", resource, e)
                 break
-        if not self.current_multimeter:
+        if self.current_multimeter is None:
             raise Exception("Multimeter not found")
 
         # Initialize the power supply
@@ -1124,8 +1182,8 @@ class TestController:
 
         self.hold_voltage = self.power_supply.charging_curve[-1][0]
         self.hold_current = 1e-3
-        # self.hold_duration = 12 * 60 * 60  # time to hold the group at voltage in s
-        self.hold_duration = 6000  # time to hold the group at voltage in s
+        self.hold_duration = 12 * 60 * 60  # time to hold the group at voltage in s
+        # self.hold_duration = 6000  # time to hold the group at voltage in s
         self.hold_ramp_rate = 5  # V/s
         self.hold_remove_devices = True
         self.hold_removal_start = (self.hold_voltage / self.hold_ramp_rate) + 300  # Elapsed time required before devices can be removed
@@ -1216,7 +1274,7 @@ class TestController:
 
         if response.lower().startswith("b"):
             self.breakdown_test = True
-            self.power_supply.current_limit_set(7e-3)
+            self.power_supply.current_limit_set(15e-3)
             self.power_supply.charging_curve = [
                 [0, 0, 0, 0],
                 [850, 2, 500, 0]
@@ -2034,7 +2092,7 @@ class Overwatch:
         try:
             device_name, time_val, current_val = measurement_data["current"]
             if self.controller.breakdown_test:
-                if current_val > 3e-3:
+                if current_val > 6e-3:
                     self.controller.interrupt_test()
         except Exception as e:
             logging.error("Error during overwatch: %s", e)
@@ -2082,7 +2140,9 @@ def main():
                     gui.measurement_queue.put(measurement_data)
                     overwatch.data_in(measurement_data)
             except Exception as e:
+                # Log full traceback to help diagnose silent exits
                 logging.error("Error in measurement thread: %s", e)
+                logging.error(traceback.format_exc())
             # Sleep briefly to avoid overwhelming the instruments
             time.sleep(controller.measurement_interval)
 
@@ -2090,9 +2150,39 @@ def main():
     meas_thread = threading.Thread(
         target=measurement_thread,
         name="MeasurementThread",
-        daemon=True
+        daemon=False
     )
     meas_thread.start()
+
+    # Install application/global exception handlers to avoid silent exits
+    def handle_exception(exc_type, exc_value, exc_traceback):
+        if issubclass(exc_type, KeyboardInterrupt):
+            # Let default handler run for KeyboardInterrupt
+            sys.__excepthook__(exc_type, exc_value, exc_traceback)
+            return
+        logging.critical("Uncaught exception", exc_info=(exc_type, exc_value, exc_traceback))
+        try:
+            input("Unexpected error occurred. Press [ENTER] to exit...")
+        except Exception:
+            pass
+
+    sys.excepthook = handle_exception
+
+    # Handle signals (where supported)
+    try:
+        signal.signal(signal.SIGINT, lambda sig, frame: stop_event.set())
+        signal.signal(signal.SIGTERM, lambda sig, frame: stop_event.set())
+    except Exception:
+        # Windows may have limitations on some signals
+        pass
+
+    # Python 3.8+: threading.excepthook for uncaught thread exceptions
+    if hasattr(threading, 'excepthook'):
+        def thread_excepthook(args):
+            logging.critical("Uncaught thread exception: %s", args.exc_value)
+            logging.critical(''.join(traceback.format_exception(args.exc_type, args.exc_value, args.exc_traceback)))
+            stop_event.set()
+        threading.excepthook = thread_excepthook
 
     try:
         app_exec = app.exec_()
