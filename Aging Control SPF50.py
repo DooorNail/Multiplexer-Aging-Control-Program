@@ -508,14 +508,23 @@ class Multiplexer:
         Initialize the multiplexer serial connection.
         """
         try:
+            # store params for potential reconnect
+            self._port = port
+            self._baudrate = baudrate
+
             self.serial = serial.Serial(
-                port=port,
-                baudrate=baudrate,
+                port=self._port,
+                baudrate=self._baudrate,
                 parity=serial.PARITY_NONE,
                 stopbits=serial.STOPBITS_ONE,
                 bytesize=serial.EIGHTBITS,
                 timeout=0.1)
             print(f"[MUX] Connected to: {self.serial.portstr}")
+            # Lock to ensure only one thread writes/reads at a time
+            self._lock = threading.Lock()
+            # How many times to attempt reconnect when access denied
+            self._max_reconnect_attempts = 5
+            self._reconnect_backoff = 0.5
         except Exception as e:
             logging.error("Failed to initialize Multiplexer: %s", e)
             raise
@@ -567,17 +576,93 @@ class Multiplexer:
         """
         Send a command to the multiplexer and verify it was accepted.
         """
-        try:
-            self.serial.write((command + "\n").encode())
-            time.sleep(0.05)  # Short delay for response
-            response = self.serial.readline().decode().strip()
-            if "OK" not in response:
-                logging.error(f"MUX command {command} failed: {response}")
+        # Use a lock to prevent concurrent access to the serial port
+        with getattr(self, '_lock', threading.Lock()):
+            try:
+                if not hasattr(self, 'serial') or self.serial is None:
+                    raise serial.SerialException('Serial object not available')
+
+                # Ensure serial port is open
+                if not getattr(self.serial, 'is_open', True):
+                    try:
+                        self.serial.open()
+                    except Exception:
+                        # try reconnect flow below
+                        raise
+
+                self.serial.write((command + "\n").encode())
+                time.sleep(0.05)  # Short delay for response
+                response = self.serial.readline().decode().strip()
+                if "OK" not in response:
+                    logging.error(f"MUX command {command} failed: {response}")
+                    return False
+                return True
+
+            except (PermissionError, serial.SerialException, OSError) as e:
+                # These exceptions commonly indicate the COM port became unavailable
+                logging.warning(f"MUX write exception (will attempt reconnect): {e}")
+
+                # Attempt to reconnect a few times
+                for attempt in range(1, getattr(self, '_max_reconnect_attempts', 3) + 1):
+                    try:
+                        self._reconnect()
+                        # after reconnect attempt, try command again
+                        self.serial.write((command + "\n").encode())
+                        time.sleep(0.05)
+                        response = self.serial.readline().decode().strip()
+                        if "OK" in response:
+                            logging.info(f"MUX command succeeded after reconnect on attempt {attempt}")
+                            return True
+                        else:
+                            logging.error(f"MUX command {command} failed after reconnect: {response}")
+                            return False
+                    except Exception as e2:
+                        logging.warning(f"Reconnect attempt {attempt} failed: {e2}")
+                        time.sleep(getattr(self, '_reconnect_backoff', 0.5) * attempt)
+
+                logging.error(f"All reconnect attempts failed for MUX command: {command}")
                 return False
-            return True
-        except Exception as e:
-            logging.error(f"Error sending MUX command {command}: {e}")
-            return False
+
+    def _reconnect(self):
+        """Attempt to reopen the serial port for the multiplexer."""
+        # Close any existing handle first
+        try:
+            if hasattr(self, 'serial') and self.serial is not None:
+                try:
+                    if getattr(self.serial, 'is_open', False):
+                        try:
+                            self.serial.close()
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+        # Create a new Serial object and open it
+        last_exc = None
+        for attempt in range(1, getattr(self, '_max_reconnect_attempts', 3) + 1):
+            try:
+                self.serial = serial.Serial(
+                    port=self._port,
+                    baudrate=self._baudrate,
+                    parity=serial.PARITY_NONE,
+                    stopbits=serial.STOPBITS_ONE,
+                    bytesize=serial.EIGHTBITS,
+                    timeout=0.1)
+                # small delay to let OS settle
+                time.sleep(getattr(self, '_reconnect_backoff', 0.5) * attempt)
+                if getattr(self.serial, 'is_open', True):
+                    logging.info(f"Reconnected to MUX on {self._port} (attempt {attempt})")
+                    return True
+            except Exception as e:
+                last_exc = e
+                logging.debug(f"MUX reconnect attempt {attempt} failed: {e}")
+                time.sleep(getattr(self, '_reconnect_backoff', 0.5) * attempt)
+
+        # If we get here, reconnection failed
+        logging.error(f"Failed to reconnect to MUX after {getattr(self, '_max_reconnect_attempts', 3)} attempts: {last_exc}")
+        raise last_exc
 
 
 class DataLogger:
